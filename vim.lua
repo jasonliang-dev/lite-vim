@@ -15,6 +15,7 @@ scroll up/down by a line (ctrl+e, ctrl+y)
 number + command (123g, 50j)
 replace (r)
 marks (``, m)
+top middle bottom (H, M, L)
 
 TOFIX LIST
 (high) visual selection off by one when moving cursor back
@@ -37,6 +38,7 @@ local has_autoindent =
     system.get_file_info("data/plugins/autoindent.lua") or system.get_file_info("data/user/plugins/autoindent.lua")
 local has_macro = system.get_file_info("data/plugins/macro.lua") or system.get_file_info("data/user/plugins/macro.lua")
 
+-- one of: "normal", "visual", "insert"
 local mode = "normal"
 
 local modkey_map = {
@@ -54,7 +56,15 @@ local marks = {
     ["`"] = {}
 }
 
-local key_combo_tree = {
+local mini_modes = {
+    find = {},
+    find_til = {},
+    replace = {},
+    macro = {},
+    mark = {}
+}
+
+local stroke_combo_tree = {
     normal = {
         ["ctrl+w"] = {},
         c = {},
@@ -65,11 +75,13 @@ local key_combo_tree = {
         m = {},
         y = {}
     },
-    visual = {}
+    visual = {
+        g = {}
+    }
 }
 
-local key_combo_string = ""
-local key_combo_loc = key_combo_tree[mode]
+local stroke_combo_string = ""
+local stroke_combo_loc = stroke_combo_tree[mode]
 
 local function doc()
     return core.active_view.doc
@@ -102,9 +114,9 @@ function keymap.on_key_pressed(k)
     if mode == "insert" then
         commands = keymap.map[stroke]
     elseif mode == "normal" then
-        commands = keymap.map["normal" .. key_combo_string .. "+" .. stroke]
+        commands = keymap.map["normal" .. stroke_combo_string .. "+" .. stroke]
     elseif mode == "visual" then
-        commands = keymap.map["visual" .. key_combo_string .. "+" .. stroke]
+        commands = keymap.map["visual" .. stroke_combo_string .. "+" .. stroke]
     else
         core.error("cannot handle key in unknown mode '%s'", mode)
     end
@@ -113,8 +125,8 @@ function keymap.on_key_pressed(k)
         for _, cmd in ipairs(commands) do
             local performed = command.perform(cmd)
             if performed then
-                key_combo_string = ""
-                key_combo_loc = key_combo_tree[mode]
+                stroke_combo_string = ""
+                stroke_combo_loc = stroke_combo_tree[mode]
                 break
             end
         end
@@ -123,16 +135,16 @@ function keymap.on_key_pressed(k)
     end
 
     if mode == "normal" or mode == "visual" then
-        key_combo_loc = key_combo_loc[stroke]
-        if key_combo_loc then
-            if key_combo_string == "" then
-                key_combo_string = ":" .. stroke
+        stroke_combo_loc = stroke_combo_loc[stroke]
+        if stroke_combo_loc then
+            if stroke_combo_string == "" then
+                stroke_combo_string = ":" .. stroke
             else
-                key_combo_string = key_combo_string .. "," .. stroke
+                stroke_combo_string = stroke_combo_string .. "+" .. stroke
             end
         else
-            key_combo_loc = key_combo_tree[mode]
-            key_combo_string = ""
+            stroke_combo_loc = stroke_combo_tree[mode]
+            stroke_combo_string = ""
         end
 
         return true
@@ -236,6 +248,8 @@ function DocView:on_mouse_moved(x, y, ...)
     end
 end
 
+local visual_caret_color = style.visual_caret or style.syntax.string
+
 local draw_line_body = DocView.draw_line_body
 function DocView:draw_line_body(idx, x, y)
     local line, col = self.doc:get_selection()
@@ -248,7 +262,7 @@ function DocView:draw_line_body(idx, x, y)
             local w = self:get_font():get_width(" ")
 
             if mode == "visual" then
-                renderer.draw_rect(x1, y, w, lh, {common.color "#ffff00"})
+                renderer.draw_rect(x1, y, w, lh, visual_caret_color)
             else
                 renderer.draw_rect(x1, y, w, lh, style.caret)
             end
@@ -288,6 +302,13 @@ local function vim_next_char(doc, line, col)
         return line, col
     end
 end
+
+local previous_exec_command = ""
+local exec_commands = {
+    ["w"] = "doc:save",
+    ["q"] = "root:close",
+    ["wq"] = "vim:save-and-close"
+}
 
 command.add(
     nil,
@@ -339,6 +360,21 @@ command.add(
             command.perform("doc:copy")
             doc():delete_to(0)
         end,
+        ["vim:exec"] = function()
+            core.command_view:set_text(previous_exec_command, true)
+            core.command_view:enter(
+                "",
+                function(text)
+                    previous_exec_command = text
+                    local cmd = exec_commands[text]
+                    if cmd then
+                        command.perform(cmd)
+                    else
+                        core.error("cannot handle command '%s'", text)
+                    end
+                end
+            )
+        end,
         ["vim:find-command"] = function()
             mode = "insert"
             command.perform("core:find-command")
@@ -380,6 +416,10 @@ command.add(
         end,
         ["vim:move-to-next-char"] = function()
             doc():move_to(vim_next_char)
+        end,
+        ["vim:save-and-close"] = function()
+            command.perform("doc:save")
+            command.perform("root:close")
         end
     }
 )
@@ -388,6 +428,7 @@ keymap.add {
     -- insert
     ["escape"] = "vim:normal-mode",
     -- normal
+    ["normal+shift+;"] = "vim:exec",
     ["normal+a"] = "vim:insert-next-char",
     ["normal+shift+a"] = "vim:insert-end-of-line",
     ["normal:d+d"] = "doc:delete-lines",
@@ -398,6 +439,7 @@ keymap.add {
     ["normal+shift+p"] = "doc:paste",
     ["normal+ctrl+p"] = "vim:find-file",
     ["normal+ctrl+shift+p"] = "vim:find-command",
+    ["normal+ctrl+\\"] = "treeview:toggle",
     ["normal+ctrl+s"] = "doc:save",
     ["normal+v"] = "vim:visual-mode",
     ["normal+x"] = "vim:delete-char",
@@ -417,7 +459,6 @@ keymap.add {
     ["normal+/"] = "find-replace:find",
     ["normal+n"] = "find-replace:repeat-find",
     ["normal+shift+n"] = "find-replace:previous-find",
-    -- doc movement
     ["normal+ctrl+d"] = "doc:move-to-next-page",
     ["normal+ctrl+u"] = "doc:move-to-previous-page",
     ["normal+shift+g"] = "doc:move-to-end-of-doc",
@@ -442,6 +483,10 @@ keymap.add {
     ["visual+e"] = "doc:select-to-next-word-end",
     ["visual+0"] = "doc:select-to-start-of-line",
     ["visual+shift+4"] = "doc:select-to-end-of-line",
+    ["visual+ctrl+d"] = "doc:select-to-next-page",
+    ["visual+ctrl+u"] = "doc:select-to-previous-page",
+    ["visual+shift+g"] = "doc:select-to-end-of-doc",
+    ["visual:g+g"] = "doc:select-to-start-of-doc",
     ["visual+x"] = "vim:delete-selection",
     ["visual+y"] = "vim:copy"
 }
