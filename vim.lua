@@ -7,21 +7,23 @@ TODO LIST
   - c prefix, (cw)
 (IN PROGRESS) search (/, n, N)
 (IN PROGRESS) commands, (:wq, :q!, :s/foo/bar/g)
+(IN PROGRESS) number + command (123g, 50j, d3w, y10l)
 visual block
 visual line
 repeat (.)
 go to other delim (%)
 scroll up/down by a line (ctrl+e, ctrl+y)
-number + command (123g, 50j)
 macros (q, @)
 replace (r)
 find (f, t)
 marks (``, m)
 top middle bottom (H, M, L)
+swap case (~)
 
 TOFIX LIST
 (high) visual selection off by one when moving cursor back
 (high) forward/back word doesn't share the same behaviour from vim
+(low) undo selects text. should it go into insert mode?
 (low) find next/prev always goes to visual mode even if there's no results
 (low) ctrl+d, ctrl+u should be a half scroll
 (low) ctrl+d, ctrl+u shouldn't move the cursor
@@ -41,19 +43,16 @@ local has_autoindent =
     system.get_file_info("data/plugins/autoindent.lua") or system.get_file_info("data/user/plugins/autoindent.lua")
 local has_macro = system.get_file_info("data/plugins/macro.lua") or system.get_file_info("data/user/plugins/macro.lua")
 
+local function dv()
+    return core.active_view
+end
+
+local function doc()
+    return core.active_view.doc
+end
+
 -- one of: "normal", "visual", "insert"
 local mode = "normal"
-
-local modkey_map = {
-    ["left ctrl"] = "ctrl",
-    ["right ctrl"] = "ctrl",
-    ["left shift"] = "shift",
-    ["right shift"] = "shift",
-    ["left alt"] = "alt",
-    ["right alt"] = "altgr"
-}
-
-local modkeys = {"ctrl", "alt", "altgr", "shift"}
 
 local marks = {
     ["`"] = {}
@@ -70,6 +69,7 @@ local mini_modes = {
 local stroke_combo_tree = {
     normal = {
         ["ctrl+w"] = {},
+        ["#"] = {},
         c = {},
         d = {
             g = {}
@@ -86,9 +86,18 @@ local stroke_combo_tree = {
 local stroke_combo_string = ""
 local stroke_combo_loc = stroke_combo_tree[mode]
 
-local function doc()
-    return core.active_view.doc
-end
+local n_repeat = 0
+
+local modkey_map = {
+    ["left ctrl"] = "ctrl",
+    ["right ctrl"] = "ctrl",
+    ["left shift"] = "shift",
+    ["right shift"] = "shift",
+    ["left alt"] = "alt",
+    ["right alt"] = "altgr"
+}
+
+local modkeys = {"ctrl", "alt", "altgr", "shift"}
 
 local function key_to_stroke(k)
     local stroke = ""
@@ -128,6 +137,11 @@ function keymap.on_key_pressed(k)
         for _, cmd in ipairs(commands) do
             local performed = command.perform(cmd)
             if performed then
+                for n = 1, n_repeat - 1 do
+                    command.perform(cmd)
+                end
+
+                n_repeat = 0
                 stroke_combo_string = ""
                 stroke_combo_loc = stroke_combo_tree[mode]
                 break
@@ -138,16 +152,22 @@ function keymap.on_key_pressed(k)
     end
 
     if mode == "normal" or mode == "visual" then
-        stroke_combo_loc = stroke_combo_loc[stroke]
-        if stroke_combo_loc then
-            if stroke_combo_string == "" then
-                stroke_combo_string = ":" .. stroke
-            else
-                stroke_combo_string = stroke_combo_string .. "+" .. stroke
-            end
+        local num = tonumber(stroke, 10)
+        if num ~= nil then
+            n_repeat = n_repeat * 10 + num
+            print(string.format("n_repeat: %d", n_repeat))
         else
-            stroke_combo_loc = stroke_combo_tree[mode]
-            stroke_combo_string = ""
+            stroke_combo_loc = stroke_combo_loc[stroke]
+            if stroke_combo_loc then
+                if stroke_combo_string == "" then
+                    stroke_combo_string = ":" .. stroke
+                else
+                    stroke_combo_string = stroke_combo_string .. "+" .. stroke
+                end
+            else
+                stroke_combo_loc = stroke_combo_tree[mode]
+                stroke_combo_string = ""
+            end
         end
 
         return true
@@ -172,7 +192,7 @@ local function mouse_selection(doc, clicks, line1, col1, line2, col2)
         line1, col1, line2, col2 = line1, 1, line2 + 1, 1
     end
 
-    if mode == "normal" and (line1 ~= line2 or col1 ~= col2) then
+    if mode ~= "insert" and (line1 ~= line2 or col1 ~= col2) then
         mode = "visual"
     end
 
@@ -255,7 +275,7 @@ function DocView:draw_line_body(idx, x, y)
     draw_line_body(self, idx, x, y)
 
     if mode == "normal" or mode == "visual" then
-        if line == idx and core.active_view == self and system.window_has_focus() then
+        if line == idx and dv() == self and system.window_has_focus() then
             local lh = self:get_line_height()
             local x1 = x + self:get_col_x_offset(line, col)
             local w = self:get_font():get_width(" ")
@@ -273,41 +293,41 @@ function DocView:draw_line_body(idx, x, y)
 end
 
 local function vim_previous_char(doc, line, col)
-    local line_cpy = line
-    local col_cpy = col
+    local line2
+    local col2
 
     repeat
-        line, col = doc:position_offset(line, col, -1)
-    until not common.is_utf8_cont(doc:get_char(line, col))
+        line2, col2 = doc:position_offset(line, col, -1)
+    until not common.is_utf8_cont(doc:get_char(line2, col2))
 
-    if line_cpy ~= line then
-        return line_cpy, col_cpy
-    else
+    if line ~= line2 then
         return line, col
+    else
+        return line2, col2
     end
 end
 
 local function vim_next_char(doc, line, col)
-    local line_cpy = line
-    local col_cpy = col
+    local line2
+    local col2
 
     repeat
-        line, col = doc:position_offset(line, col, 1)
-    until not common.is_utf8_cont(doc:get_char(line, col))
+        line2, col2 = doc:position_offset(line, col, 1)
+    until not common.is_utf8_cont(doc:get_char(line2, col2))
 
-    if line_cpy ~= line then
-        return line_cpy, col_cpy
-    else
+    if line ~= line2 then
         return line, col
+    else
+        return line2, col2
     end
 end
 
 local previous_exec_command = ""
 local exec_commands = {
-    ["w"] = "doc:save",
-    ["q"] = "root:close",
-    ["wq"] = "vim:save-and-close",
-    ["x"] = "vim:save-and-close"
+    w = "doc:save",
+    q = "root:close",
+    wq = "vim:save-and-close",
+    x = "vim:save-and-close"
 }
 
 command.add(
@@ -330,7 +350,7 @@ command.add(
         end,
         ["vim:change-end-of-line"] = function()
             mode = "insert"
-            doc():select_to(translate.end_of_line, core.active_view)
+            doc():select_to(translate.end_of_line, dv())
             command.perform("doc:cut")
         end,
         ["vim:change-selection"] = function()
@@ -339,12 +359,15 @@ command.add(
         end,
         ["vim:change-word"] = function()
             mode = "insert"
-            doc():select_to(translate.next_word_end, core.active_view)
+            doc():select_to(translate.next_word_end, dv())
             command.perform("doc:cut")
         end,
         ["vim:copy"] = function()
             mode = "normal"
-            command.perform("doc:copy")
+
+            local l1, c1, l2, c2 = doc():get_selection()
+            local text = doc():get_text(l1, c1, l2, c2)
+            system.set_clipboard(text)
 
             local cursor_at_selection_start = l2 < l1 or (l2 == l1 and c2 < c1)
             if cursor_at_selection_start then
@@ -359,7 +382,11 @@ command.add(
             system.set_clipboard(text)
         end,
         ["vim:delete-char"] = function()
-            doc():select_to(translate.next_char, core.active_view)
+            doc():select_to(translate.next_char, dv())
+            command.perform("doc:cut")
+        end,
+        ["vim:delete-end-of-line"] = function()
+            doc():select_to(translate.end_of_line, dv())
             command.perform("doc:cut")
         end,
         ["vim:delete-selection"] = function()
@@ -367,7 +394,7 @@ command.add(
             command.perform("doc:cut")
         end,
         ["vim:delete-word"] = function()
-            doc():select_to(translate.next_word_end, core.active_view)
+            doc():select_to(translate.next_word_end, dv())
             command.perform("doc:cut")
         end,
         ["vim:exec"] = function()
@@ -394,12 +421,12 @@ command.add(
             command.perform("core:find-file")
         end,
         ["vim:find-next"] = function()
-           mode = "visual"
-           command.perform("find-replace:repeat-find")
+            mode = "visual"
+            command.perform("find-replace:repeat-find")
         end,
         ["vim:find-previous"] = function()
-           mode = "visual"
-           command.perform("find-replace:previous-find")
+            mode = "visual"
+            command.perform("find-replace:previous-find")
         end,
         ["vim:insert-end-of-line"] = function()
             mode = "insert"
@@ -411,7 +438,7 @@ command.add(
             local next_line, next_col = translate.next_char(doc(), line, col)
 
             if line ~= next_line then
-                doc():move_to(translate.end_of_line, core.active_view)
+                doc():move_to(translate.end_of_line, dv())
             else
                 doc():move_to(translate.next_char)
             end
@@ -450,8 +477,10 @@ keymap.add {
     ["normal+a"] = "vim:insert-next-char",
     ["normal+shift+a"] = "vim:insert-end-of-line",
     ["normal+shift+c"] = "vim:change-end-of-line",
+    ["normal:c+w"] = "vim:change-word",
     ["normal:d+d"] = "doc:delete-lines",
     ["normal:d+w"] = "vim:delete-word",
+    ["normal+shift+d"] = "vim:delete-end-of-line",
     ["normal+i"] = "vim:insert-mode",
     ["normal+o"] = "vim:insert-newline-below",
     ["normal+shift+o"] = "vim:insert-newline-above",
