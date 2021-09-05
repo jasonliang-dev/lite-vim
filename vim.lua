@@ -17,7 +17,6 @@ macros (q, @)
 replace (r)
 find (f, t)
 marks (``, m)
-top middle bottom (H, M, L)
 swap case (~)
 
 TOFIX LIST
@@ -172,11 +171,7 @@ function keymap.on_key_pressed(k)
 
         stroke_combo_loc = stroke_combo_loc[stroke]
         if stroke_combo_loc then
-            if stroke_combo_string == "" then
-                stroke_combo_string = ":" .. stroke
-            else
-                stroke_combo_string = stroke_combo_string .. "+" .. stroke
-            end
+            stroke_combo_string = stroke_combo_string .. "+" .. stroke
         else
             stroke_combo_loc = stroke_combo_tree[mode]
             stroke_combo_string = ""
@@ -395,10 +390,14 @@ command.add(
             system.set_clipboard(text)
         end,
         ["vim:copy-n-words"] = function()
+            local line, col = doc():get_selection()
+
             for i = 1, n_repeat do
                 doc():select_to(translate.next_word_end, dv())
             end
+
             command.perform("doc:copy")
+            doc():set_selection(line, col)
         end,
         ["vim:delete-char"] = function()
             doc():select_to(translate.next_char, dv())
@@ -476,19 +475,33 @@ command.add(
             end
         end,
         ["vim:move-to-line"] = function()
-           if n_repeat ~= 0 then
-              dv():scroll_to_line(n_repeat, true)
-              doc():set_selection(n_repeat, 1)
-              n_repeat = 0
-           else
-              command.perform("doc:move-to-end-of-doc")
-           end
+            if n_repeat ~= 0 then
+                dv():scroll_to_line(n_repeat, true)
+                doc():set_selection(n_repeat, 1)
+                n_repeat = 0
+            else
+                command.perform("doc:move-to-end-of-doc")
+            end
         end,
         ["vim:move-to-previous-char"] = function()
             doc():move_to(vim_previous_char)
         end,
         ["vim:move-to-next-char"] = function()
             doc():move_to(vim_next_char)
+        end,
+        ["vim:move-to-visible-top"] = function()
+            local min = dv():get_visible_line_range()
+            doc():set_selection(min, 1)
+        end,
+        ["vim:move-to-visible-middle"] = function()
+            local min, max = dv():get_visible_line_range()
+            doc():set_selection(math.floor((max + min) / 2), 1)
+        end,
+        ["vim:move-to-visible-bottom"] = function()
+            local _, max = dv():get_visible_line_range()
+            doc():set_selection(max, 1)
+        end,
+        ["vim:other-delim"] = function()
         end,
         ["vim:save-and-close"] = function()
             command.perform("doc:save")
@@ -505,24 +518,28 @@ keymap.add {
     ["normal+a"] = "vim:insert-next-char",
     ["normal+shift+a"] = "vim:insert-end-of-line",
     ["normal+shift+c"] = "vim:change-end-of-line",
-    ["normal:c+w"] = "vim:change-word",
-    ["normal:d+d"] = "doc:delete-lines",
-    ["normal:d+w"] = "vim:delete-word",
+    ["normal+c+w"] = "vim:change-word",
+    ["normal+d+d"] = "doc:delete-lines",
+    ["normal+d+w"] = "vim:delete-word",
     ["normal+shift+d"] = "vim:delete-end-of-line",
+    ["normal+shift+h"] = "vim:move-to-visible-top",
+    ["normal+shift+m"] = "vim:move-to-visible-middle",
+    ["normal+shift+l"] = "vim:move-to-visible-bottom",
     ["normal+i"] = "vim:insert-mode",
     ["normal+o"] = "vim:insert-newline-below",
     ["normal+shift+o"] = "vim:insert-newline-above",
+    ["normal+p"] = "doc:paste",
     ["normal+shift+p"] = "doc:paste",
     ["normal+ctrl+p"] = "vim:find-file",
     ["normal+ctrl+shift+p"] = "vim:find-command",
     ["normal+ctrl+\\"] = "treeview:toggle",
     ["normal+ctrl+s"] = "doc:save",
-    ["normal:g+t"] = "root:switch-to-next-tab",
-    ["normal:g+shift+t"] = "root:switch-to-previous-tab",
+    ["normal+g+t"] = "root:switch-to-next-tab",
+    ["normal+g+shift+t"] = "root:switch-to-previous-tab",
     ["normal+v"] = "vim:visual-mode",
     ["normal+x"] = "vim:delete-char",
-    ["normal:y+y"] = "vim:copy-line",
-    ["normal:y+#+w"] = "vim:copy-n-words",
+    ["normal+y+y"] = "vim:copy-line",
+    ["normal+y+#+w"] = "vim:copy-n-words",
     ["normal+u"] = "doc:undo",
     ["normal+ctrl+r"] = "doc:redo",
     -- cursor movement
@@ -535,20 +552,21 @@ keymap.add {
     ["normal+e"] = "doc:move-to-next-word-end",
     ["normal+0"] = "doc:move-to-start-of-line",
     ["normal+shift+4"] = "doc:move-to-end-of-line",
+    ["normal+shift+5"] = "vim:other-delim",
     ["normal+/"] = "find-replace:find",
     ["normal+n"] = "vim:find-next",
     ["normal+shift+n"] = "vim:find-previous",
     ["normal+ctrl+d"] = "doc:move-to-next-page",
     ["normal+ctrl+u"] = "doc:move-to-previous-page",
     ["normal+shift+g"] = "vim:move-to-line",
-    ["normal:g+g"] = "doc:move-to-start-of-doc",
+    ["normal+g+g"] = "doc:move-to-start-of-doc",
     -- splits
-    ["normal:ctrl+w+v"] = "root:split-right",
-    ["normal:ctrl+w+s"] = "root:split-down",
-    ["normal:ctrl+w+h"] = "root:switch-to-left",
-    ["normal:ctrl+w+j"] = "root:switch-to-down",
-    ["normal:ctrl+w+k"] = "root:switch-to-up",
-    ["normal:ctrl+w+l"] = "root:switch-to-right",
+    ["normal+ctrl+w+v"] = "root:split-right",
+    ["normal+ctrl+w+s"] = "root:split-down",
+    ["normal+ctrl+w+h"] = "root:switch-to-left",
+    ["normal+ctrl+w+j"] = "root:switch-to-down",
+    ["normal+ctrl+w+k"] = "root:switch-to-up",
+    ["normal+ctrl+w+l"] = "root:switch-to-right",
     -- visual
     ["visual+escape"] = "vim:exit-visual-mode",
     ["visual+ctrl+p"] = "vim:find-file",
@@ -565,7 +583,7 @@ keymap.add {
     ["visual+ctrl+d"] = "doc:select-to-next-page",
     ["visual+ctrl+u"] = "doc:select-to-previous-page",
     ["visual+shift+g"] = "doc:select-to-end-of-doc",
-    ["visual:g+g"] = "doc:select-to-start-of-doc",
+    ["visual+g+g"] = "doc:select-to-start-of-doc",
     ["visual+n"] = "vim:find-next",
     ["visual+shift+n"] = "vim:find-previous",
     ["visual+x"] = "vim:delete-selection",
