@@ -40,8 +40,8 @@ local translate = require "core.doc.translate"
 local common = require "core.common"
 
 local has_autoindent =
-    system.get_file_info("data/plugins/autoindent.lua") or system.get_file_info("data/user/plugins/autoindent.lua")
-local has_macro = system.get_file_info("data/plugins/macro.lua") or system.get_file_info("data/user/plugins/macro.lua")
+    system.get_file_info "data/plugins/autoindent.lua" or system.get_file_info "data/user/plugins/autoindent.lua"
+local has_macro = system.get_file_info "data/plugins/macro.lua" or system.get_file_info "data/user/plugins/macro.lua"
 
 local function dv()
     return core.active_view
@@ -54,10 +54,6 @@ end
 -- one of: "normal", "visual", "insert"
 local mode = "normal"
 
-local marks = {
-    ["`"] = {}
-}
-
 local mini_modes = {
     find = {},
     find_til = {},
@@ -69,14 +65,16 @@ local mini_modes = {
 local stroke_combo_tree = {
     normal = {
         ["ctrl+w"] = {},
-        ["#"] = {},
         c = {},
         d = {
-            g = {}
+            g = {},
+            ["#"] = {}
         },
         g = {},
         m = {},
-        y = {}
+        y = {
+            ["#"] = {}
+        }
     },
     visual = {
         g = {}
@@ -122,52 +120,67 @@ function keymap.on_key_pressed(k)
     end
 
     local stroke = key_to_stroke(k)
-    local commands
-    if mode == "insert" then
-        commands = keymap.map[stroke]
-    elseif mode == "normal" then
-        commands = keymap.map["normal" .. stroke_combo_string .. "+" .. stroke]
-    elseif mode == "visual" then
-        commands = keymap.map["visual" .. stroke_combo_string .. "+" .. stroke]
-    else
-        core.error("Cannot handle key in unknown mode '%s'", mode)
-    end
 
-    if commands then
-        for _, cmd in ipairs(commands) do
-            local performed = command.perform(cmd)
-            if performed then
-                for n = 1, n_repeat - 1 do
-                    command.perform(cmd)
-                end
-
-                n_repeat = 0
-                stroke_combo_string = ""
-                stroke_combo_loc = stroke_combo_tree[mode]
-                break
-            end
+    -- workaround for (normal+0)
+    if not (stroke == "0" and n_repeat ~= 0) then
+        local commands
+        if mode == "insert" then
+            commands = keymap.map[stroke]
+        elseif mode == "normal" then
+            commands = keymap.map["normal" .. stroke_combo_string .. "+" .. stroke]
+        elseif mode == "visual" then
+            commands = keymap.map["visual" .. stroke_combo_string .. "+" .. stroke]
+        else
+            core.error("Cannot handle key in unknown mode '%s'", mode)
         end
 
-        return true
+        if commands then
+            for _, cmd in ipairs(commands) do
+                local performed = command.perform(cmd)
+                if performed then
+                    if not stroke_combo_string:find("#", 1, true) then
+                        for n = 1, n_repeat - 1 do
+                            command.perform(cmd)
+                        end
+                    end
+
+                    n_repeat = 0
+                    stroke_combo_string = ""
+                    stroke_combo_loc = stroke_combo_tree[mode]
+                    break
+                end
+            end
+
+            return true
+        end
     end
 
     if mode == "normal" or mode == "visual" then
         local num = tonumber(stroke, 10)
         if num ~= nil then
             n_repeat = n_repeat * 10 + num
-            print(string.format("n_repeat: %d", n_repeat))
-        else
-            stroke_combo_loc = stroke_combo_loc[stroke]
-            if stroke_combo_loc then
-                if stroke_combo_string == "" then
-                    stroke_combo_string = ":" .. stroke
-                else
-                    stroke_combo_string = stroke_combo_string .. "+" .. stroke
-                end
-            else
-                stroke_combo_loc = stroke_combo_tree[mode]
-                stroke_combo_string = ""
+            stroke = "#"
+
+            if stroke_combo_string == "" then
+                return true
             end
+        end
+
+        if stroke_combo_string:sub(-1) == "#" and stroke == "#" then
+            return true
+        end
+
+        stroke_combo_loc = stroke_combo_loc[stroke]
+        if stroke_combo_loc then
+            if stroke_combo_string == "" then
+                stroke_combo_string = ":" .. stroke
+            else
+                stroke_combo_string = stroke_combo_string .. "+" .. stroke
+            end
+        else
+            stroke_combo_loc = stroke_combo_tree[mode]
+            stroke_combo_string = ""
+            n_repeat = 0
         end
 
         return true
@@ -381,6 +394,12 @@ command.add(
             local text = doc():get_text(line, 1, line + 1, 1)
             system.set_clipboard(text)
         end,
+        ["vim:copy-n-words"] = function()
+            for i = 1, n_repeat do
+                doc():select_to(translate.next_word_end, dv())
+            end
+            command.perform("doc:copy")
+        end,
         ["vim:delete-char"] = function()
             doc():select_to(translate.next_char, dv())
             command.perform("doc:cut")
@@ -456,6 +475,15 @@ command.add(
                 command.perform("doc:newline-below")
             end
         end,
+        ["vim:move-to-line"] = function()
+           if n_repeat ~= 0 then
+              dv():scroll_to_line(n_repeat, true)
+              doc():set_selection(n_repeat, 1)
+              n_repeat = 0
+           else
+              command.perform("doc:move-to-end-of-doc")
+           end
+        end,
         ["vim:move-to-previous-char"] = function()
             doc():move_to(vim_previous_char)
         end,
@@ -494,6 +522,7 @@ keymap.add {
     ["normal+v"] = "vim:visual-mode",
     ["normal+x"] = "vim:delete-char",
     ["normal:y+y"] = "vim:copy-line",
+    ["normal:y+#+w"] = "vim:copy-n-words",
     ["normal+u"] = "doc:undo",
     ["normal+ctrl+r"] = "doc:redo",
     -- cursor movement
@@ -511,7 +540,7 @@ keymap.add {
     ["normal+shift+n"] = "vim:find-previous",
     ["normal+ctrl+d"] = "doc:move-to-next-page",
     ["normal+ctrl+u"] = "doc:move-to-previous-page",
-    ["normal+shift+g"] = "doc:move-to-end-of-doc",
+    ["normal+shift+g"] = "vim:move-to-line",
     ["normal:g+g"] = "doc:move-to-start-of-doc",
     -- splits
     ["normal:ctrl+w+v"] = "root:split-right",
