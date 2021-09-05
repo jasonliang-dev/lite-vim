@@ -4,22 +4,25 @@ vim.lua - see end of file for license information
 
 TODO LIST
 (IN PROGRESS) combos (dw, yy, ...)
+  - c prefix, (cw)
 (IN PROGRESS) search (/, n, N)
+(IN PROGRESS) commands, (:wq, :q!, :s/foo/bar/g)
 visual block
 visual line
-macros (q, @)
 repeat (.)
 go to other delim (%)
-commands, (:wq, :q!, :s/foo/bar/g)
 scroll up/down by a line (ctrl+e, ctrl+y)
 number + command (123g, 50j)
+macros (q, @)
 replace (r)
+find (f, t)
 marks (``, m)
 top middle bottom (H, M, L)
 
 TOFIX LIST
 (high) visual selection off by one when moving cursor back
 (high) forward/back word doesn't share the same behaviour from vim
+(low) find next/prev always goes to visual mode even if there's no results
 (low) ctrl+d, ctrl+u should be a half scroll
 (low) ctrl+d, ctrl+u shouldn't move the cursor
 (low): cursor shouldn't be able to sit on the newline
@@ -118,7 +121,7 @@ function keymap.on_key_pressed(k)
     elseif mode == "visual" then
         commands = keymap.map["visual" .. stroke_combo_string .. "+" .. stroke]
     else
-        core.error("cannot handle key in unknown mode '%s'", mode)
+        core.error("Cannot handle key in unknown mode '%s'", mode)
     end
 
     if commands then
@@ -160,21 +163,17 @@ local function mouse_selection(doc, clicks, line1, col1, line2, col2)
     end
 
     if clicks == 2 then
-        if mode == "normal" then
-            mode = "visual"
-        end
-
         line1, col1 = translate.start_of_word(doc, line1, col1)
         line2, col2 = translate.end_of_word(doc, line2, col2)
     elseif clicks == 3 then
-        if mode == "normal" then
-            mode = "visual"
-        end
-
         if line2 == #doc.lines and doc.lines[#doc.lines] ~= "\n" then
             doc:insert(math.huge, math.huge, "\n")
         end
         line1, col1, line2, col2 = line1, 1, line2 + 1, 1
+    end
+
+    if mode == "normal" and (line1 ~= line2 or col1 ~= col2) then
+        mode = "visual"
     end
 
     if swap then
@@ -185,8 +184,8 @@ end
 
 local command_view_enter = CommandView.enter
 function CommandView:enter(text, submit, suggest, cancel)
-    command_view_enter(self, text, submit, suggest, cancel)
     mode = "insert"
+    command_view_enter(self, text, submit, suggest, cancel)
 end
 
 local command_view_exit = CommandView.exit
@@ -307,7 +306,8 @@ local previous_exec_command = ""
 local exec_commands = {
     ["w"] = "doc:save",
     ["q"] = "root:close",
-    ["wq"] = "vim:save-and-close"
+    ["wq"] = "vim:save-and-close",
+    ["x"] = "vim:save-and-close"
 }
 
 command.add(
@@ -328,6 +328,20 @@ command.add(
             mode = "normal"
             command.perform("doc:select-none")
         end,
+        ["vim:change-end-of-line"] = function()
+            mode = "insert"
+            doc():select_to(translate.end_of_line, core.active_view)
+            command.perform("doc:cut")
+        end,
+        ["vim:change-selection"] = function()
+            mode = "insert"
+            command.perform("doc:cut")
+        end,
+        ["vim:change-word"] = function()
+            mode = "insert"
+            doc():select_to(translate.next_word_end, core.active_view)
+            command.perform("doc:cut")
+        end,
         ["vim:copy"] = function()
             mode = "normal"
             command.perform("doc:copy")
@@ -346,31 +360,27 @@ command.add(
         end,
         ["vim:delete-char"] = function()
             doc():select_to(translate.next_char, core.active_view)
-            local text = doc():get_text(doc():get_selection())
-            system.set_clipboard(text)
-            doc():delete_to(0)
+            command.perform("doc:cut")
         end,
         ["vim:delete-selection"] = function()
             mode = "normal"
-            command.perform("doc:copy")
-            doc():delete_to(0)
+            command.perform("doc:cut")
         end,
         ["vim:delete-word"] = function()
             doc():select_to(translate.next_word_end, core.active_view)
-            command.perform("doc:copy")
-            doc():delete_to(0)
+            command.perform("doc:cut")
         end,
         ["vim:exec"] = function()
             core.command_view:set_text(previous_exec_command, true)
             core.command_view:enter(
-                "",
+                "vim",
                 function(text)
                     previous_exec_command = text
                     local cmd = exec_commands[text]
                     if cmd then
                         command.perform(cmd)
                     else
-                        core.error("cannot handle command '%s'", text)
+                        core.error("Unknown command ':%s'", text)
                     end
                 end
             )
@@ -382,6 +392,14 @@ command.add(
         ["vim:find-file"] = function()
             mode = "insert"
             command.perform("core:find-file")
+        end,
+        ["vim:find-next"] = function()
+           mode = "visual"
+           command.perform("find-replace:repeat-find")
+        end,
+        ["vim:find-previous"] = function()
+           mode = "visual"
+           command.perform("find-replace:previous-find")
         end,
         ["vim:insert-end-of-line"] = function()
             mode = "insert"
@@ -431,6 +449,7 @@ keymap.add {
     ["normal+shift+;"] = "vim:exec",
     ["normal+a"] = "vim:insert-next-char",
     ["normal+shift+a"] = "vim:insert-end-of-line",
+    ["normal+shift+c"] = "vim:change-end-of-line",
     ["normal:d+d"] = "doc:delete-lines",
     ["normal:d+w"] = "vim:delete-word",
     ["normal+i"] = "vim:insert-mode",
@@ -441,6 +460,8 @@ keymap.add {
     ["normal+ctrl+shift+p"] = "vim:find-command",
     ["normal+ctrl+\\"] = "treeview:toggle",
     ["normal+ctrl+s"] = "doc:save",
+    ["normal:g+t"] = "root:switch-to-next-tab",
+    ["normal:g+shift+t"] = "root:switch-to-previous-tab",
     ["normal+v"] = "vim:visual-mode",
     ["normal+x"] = "vim:delete-char",
     ["normal:y+y"] = "vim:copy-line",
@@ -457,8 +478,8 @@ keymap.add {
     ["normal+0"] = "doc:move-to-start-of-line",
     ["normal+shift+4"] = "doc:move-to-end-of-line",
     ["normal+/"] = "find-replace:find",
-    ["normal+n"] = "find-replace:repeat-find",
-    ["normal+shift+n"] = "find-replace:previous-find",
+    ["normal+n"] = "vim:find-next",
+    ["normal+shift+n"] = "vim:find-previous",
     ["normal+ctrl+d"] = "doc:move-to-next-page",
     ["normal+ctrl+u"] = "doc:move-to-previous-page",
     ["normal+shift+g"] = "doc:move-to-end-of-doc",
@@ -487,7 +508,10 @@ keymap.add {
     ["visual+ctrl+u"] = "doc:select-to-previous-page",
     ["visual+shift+g"] = "doc:select-to-end-of-doc",
     ["visual:g+g"] = "doc:select-to-start-of-doc",
+    ["visual+n"] = "vim:find-next",
+    ["visual+shift+n"] = "vim:find-previous",
     ["visual+x"] = "vim:delete-selection",
+    ["visual+c"] = "vim:change-selection",
     ["visual+y"] = "vim:copy"
 }
 
