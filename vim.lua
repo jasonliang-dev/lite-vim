@@ -517,7 +517,7 @@ command.add(
                 local start = col + 1
                 local count = 1
 
-                while true do
+                while line <= #doc().lines do
                     local text = doc():get_text(line, 1, line, math.huge)
 
                     for i = start, #text do
@@ -538,44 +538,44 @@ command.add(
                     start = 1
                     line = line + 1
                 end
+            else
+                local backward = {
+                    [")"] = "(",
+                    ["]"] = "[",
+                    ["}"] = "{",
+                    [">"] = "<"
+                }
 
-                return
-            end
+                other = backward[delim]
+                if other then
+                    local start = col - 1
+                    local count = 1
 
-            local backward = {
-                [")"] = "(",
-                ["]"] = "[",
-                ["}"] = "{",
-                [">"] = "<"
-            }
+                    local text = doc():get_text(line, 1, line, math.huge)
+                    while line > 0 do
+                        for i = start, 1, -1 do
+                            local c = text:sub(i, i)
 
-            other = backward[delim]
-            if other then
-                local start = col - 1
-                local count = 1
+                            if c == delim then
+                                count = count + 1
+                            elseif c == other then
+                                count = count - 1
+                            end
 
-                local text = doc():get_text(line, 1, line, math.huge)
-                while true do
-                    for i = start, 1, -1 do
-                        local c = text:sub(i, i)
-
-                        if c == delim then
-                            count = count + 1
-                        elseif c == other then
-                            count = count - 1
+                            if count == 0 then
+                                doc():set_selection(line, i)
+                                return
+                            end
                         end
 
-                        if count == 0 then
-                            doc():set_selection(line, i)
-                            return
-                        end
+                        line = line - 1
+                        text = doc():get_text(line, 1, line, math.huge)
+                        start = #text
                     end
-
-                    line = line - 1
-                    text = doc():get_text(line, 1, line, math.huge)
-                    start = #text
                 end
             end
+
+            core.error("No matching item found")
         end,
         ["vim:save-and-close"] = function()
             command.perform("doc:save")
