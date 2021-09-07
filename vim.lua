@@ -4,8 +4,8 @@ vim.lua - see end of file for license information
 
 TODO LIST
 (IN PROGRESS) combos (dw, yy, ...)
-  - c prefix, (cw)
-  - diw, cit
+    - c prefix, (cw)
+    - diw, cit
 (IN PROGRESS) commands, (:wq, :q!, :s/foo/bar/g)
 (IN PROGRESS) number + command (123g, 50j, d3w, y10l)
 visual block
@@ -15,13 +15,15 @@ scroll up/down by a line (ctrl+e, ctrl+y)
 macros (q, @)
 marks (``, m)
 swap case (~)
+indent (<<, >>)
 
 TOFIX LIST
 (high) visual selection off by one when moving cursor back, clearing text, etc
 (high) forward/back word doesn't share the same behaviour from vim
+(high) undo selects text
 (low) autocomplete shows up when using find (f)
-(low) undo selects text. should it go into insert mode?
 (low) find next/prev always goes to visual mode even if there's no results
+    - should find/repeat-find even go into visual mode?
 (low) ctrl+d, ctrl+u should be a half scroll
 (low) ctrl+d, ctrl+u shouldn't move the cursor
 (low): cursor shouldn't be able to sit on the newline
@@ -181,7 +183,12 @@ end
 
 function keymap.on_key_pressed(k)
     if mini_mode then
-        return false
+        if k == "escape" then
+            mini_mode = nil
+            return true
+        else
+            return false
+        end
     end
 
     local mk = modkey_map[k]
@@ -652,9 +659,16 @@ command.add(
             mode = "normal"
             command.perform "doc:join-lines"
         end,
+        ["vim:move-to-first-line"] = function()
+            if n_repeat ~= 0 then
+                doc():set_selection(n_repeat, 1)
+                n_repeat = 0
+            else
+                command.perform "doc:move-to-start-of-doc"
+            end
+        end,
         ["vim:move-to-line"] = function()
             if n_repeat ~= 0 then
-                dv():scroll_to_line(n_repeat, true)
                 doc():set_selection(n_repeat, 1)
                 n_repeat = 0
             else
@@ -688,6 +702,15 @@ command.add(
         ["vim:save-and-close"] = function()
             command.perform "doc:save"
             command.perform "root:close"
+        end,
+        ["vim:select-to-first-line"] = function()
+            command.perform "doc:select-to-start-of-doc"
+        end,
+        ["vim:select-to-line"] = function()
+            command.perform "doc:select-to-end-of-doc"
+        end,
+        ["vim:select-to-other-delim"] = function()
+            doc():select_to(vim_translate.other_delim)
         end
     }
 )
@@ -747,7 +770,7 @@ keymap.add {
     ["normal+ctrl+d"] = "doc:move-to-next-page",
     ["normal+ctrl+u"] = "doc:move-to-previous-page",
     ["normal+shift+g"] = "vim:move-to-line",
-    ["normal+g+g"] = "doc:move-to-start-of-doc",
+    ["normal+g+g"] = "vim:move-to-first-line",
     ["normal+f"] = "vim:find-char",
     ["normal+shift+f"] = "vim:find-char-backwards",
     ["normal+t"] = "vim:find-char-til",
@@ -772,10 +795,11 @@ keymap.add {
     ["visual+e"] = "doc:select-to-next-word-end",
     ["visual+0"] = "doc:select-to-start-of-line",
     ["visual+shift+4"] = "doc:select-to-end-of-line",
+    ["visual+shift+5"] = "vim:select-to-other-delim",
     ["visual+ctrl+d"] = "doc:select-to-next-page",
     ["visual+ctrl+u"] = "doc:select-to-previous-page",
-    ["visual+shift+g"] = "doc:select-to-end-of-doc",
-    ["visual+g+g"] = "doc:select-to-start-of-doc",
+    ["visual+shift+g"] = "vim:select-to-line",
+    ["visual+g+g"] = "vim:select-to-first-line",
     ["visual+n"] = "vim:find-next",
     ["visual+shift+n"] = "vim:find-previous",
     ["visual+x"] = "vim:delete-selection",
@@ -783,7 +807,7 @@ keymap.add {
     ["visual+y"] = "vim:copy",
     ["visual+r"] = "vim:replace",
     ["visual+u"] = "vim:exit-visual-mode",
-    ["visual+shift+j"] = "vim:join-lines",
+    ["visual+shift+j"] = "vim:join-lines"
 }
 
 --[[
