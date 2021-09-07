@@ -14,7 +14,6 @@ repeat (.)
 scroll up/down by a line (ctrl+e, ctrl+y)
 macros (q, @)
 marks (``, m)
-swap case (~)
 
 TOFIX LIST
 (high) visual selection off by one when moving cursor back, clearing text, etc
@@ -149,12 +148,7 @@ local mini_mode_callbacks = {
         core.error("Can't find " .. input_text)
     end,
     replace = function(input_text)
-        local l1, c1, l2, c2 = doc():get_selection()
-
-        local swap = l2 < l1 or (l2 == l1 and c2 <= c1)
-        if swap then
-            l1, c1, l2, c2 = l2, c2, l1, c1
-        end
+        local l1, c1, l2, c2 = doc():get_selection(true)
 
         c2 = c2 + 1
 
@@ -428,7 +422,7 @@ local vim_translate = {
         end
     end,
     other_delim = function(doc, line, col)
-        local line_sav, col_sav = line, col
+        local line2, col2 = line, col
         local delim = doc:get_text(line, col, line, col + 1)
 
         local forward = {
@@ -500,7 +494,7 @@ local vim_translate = {
         end
 
         core.error "No matching item found"
-        return line_sav, col_sav
+        return line2, col2
     end
 }
 
@@ -634,12 +628,7 @@ command.add(
         end,
         ["vim:indent-left"] = function()
             mode = "normal"
-            local l1, c1, l2, c2 = doc():get_selection()
-
-            local swap = l2 < l1 or (l2 == l1 and c2 <= c1)
-            if swap then
-                l1, c1, l2, c2 = l2, c2, l1, c1
-            end
+            local l1, c1, l2, c2 = doc():get_selection(true)
 
             for i = l1, l2 do
                 local text = doc():get_text(i, 1, i, math.huge)
@@ -660,12 +649,7 @@ command.add(
         end,
         ["vim:indent-right"] = function()
             mode = "normal"
-            local l1, c1, l2, c2 = doc():get_selection()
-
-            local swap = l2 < l1 or (l2 == l1 and c2 <= c1)
-            if swap then
-                l1, c1, l2, c2 = l2, c2, l1, c1
-            end
+            local l1, c1, l2, c2 = doc():get_selection(true)
 
             for i = l1, l2 do
                 local text = doc():get_text(i, 1, i, math.huge)
@@ -764,6 +748,33 @@ command.add(
         end,
         ["vim:select-to-other-delim"] = function()
             doc():select_to(vim_translate.other_delim)
+        end,
+        ["vim:swap-case"] = function()
+            local l1, c1, l2, c2 = doc():get_selection(true)
+            c2 = c2 + 1
+
+            local text = doc():get_text(l1, c1, l2, c2)
+            doc():remove(l1, c1, l2, c2)
+
+            local split = {}
+            for c in text:gmatch "." do
+                table.insert(split, c)
+            end
+
+            for k, c in pairs(split) do
+               if c:match("[A-Z]") then
+                  split[k] = c:lower()
+               else
+                  split[k] = c:upper()
+               end
+            end
+
+            print(table.concat(split))
+            doc():insert(l1, c1, table.concat(split))
+
+            if mode == "normal" then
+               doc():set_selection(l1, c1 + 1)
+            end
         end
     }
 )
@@ -804,6 +815,7 @@ keymap.add {
     ["normal+shift+j"] = "vim:join-lines",
     ["normal+shift+,+shift+,"] = "vim:indent-left",
     ["normal+shift+.+shift+."] = "vim:indent-right",
+    ["normal+shift+`"] = "vim:swap-case",
     -- cursor movement
     ["normal+left"] = "vim:move-to-previous-char",
     ["normal+down"] = "doc:move-to-next-line",
@@ -864,7 +876,8 @@ keymap.add {
     ["visual+u"] = "vim:exit-visual-mode",
     ["visual+shift+j"] = "vim:join-lines",
     ["visual+shift+,"] = "vim:indent-left",
-    ["visual+shift+."] = "vim:indent-right"
+    ["visual+shift+."] = "vim:indent-right",
+    ["visual+shift+`"] = "vim:swap-case"
 }
 
 --[[
