@@ -696,6 +696,16 @@ command.add(
             mode = "normal"
             command.perform "doc:join-lines"
         end,
+        ["vim:lowercase"] = function()
+            local l1, c1, l2, c2 = doc():get_selection(true)
+            c2 = c2 + 1
+
+            local text = doc():get_text(l1, c1, l2, c2)
+            doc():remove(l1, c1, l2, c2)
+            doc():insert(l1, c1, text:lower())
+            doc():set_selection(l1, c1)
+            mode = "normal"
+        end,
         ["vim:move-to-first-line"] = function()
             if n_repeat ~= 0 then
                 doc():set_selection(n_repeat, 1)
@@ -762,19 +772,28 @@ command.add(
             end
 
             for k, c in pairs(split) do
-               if c:match("[A-Z]") then
-                  split[k] = c:lower()
-               else
-                  split[k] = c:upper()
-               end
+                if c:match("[A-Z]") then
+                    split[k] = c:lower()
+                else
+                    split[k] = c:upper()
+                end
             end
 
-            print(table.concat(split))
             doc():insert(l1, c1, table.concat(split))
 
             if mode == "normal" then
-               doc():set_selection(l1, c1 + 1)
+                doc():set_selection(l1, c1 + 1)
             end
+        end,
+        ["vim:uppercase"] = function()
+            local l1, c1, l2, c2 = doc():get_selection(true)
+            c2 = c2 + 1
+
+            local text = doc():get_text(l1, c1, l2, c2)
+            doc():remove(l1, c1, l2, c2)
+            doc():insert(l1, c1, text:upper())
+            doc():set_selection(l1, c1)
+            mode = "normal"
         end
     }
 )
@@ -877,7 +896,9 @@ keymap.add {
     ["visual+shift+j"] = "vim:join-lines",
     ["visual+shift+,"] = "vim:indent-left",
     ["visual+shift+."] = "vim:indent-right",
-    ["visual+shift+`"] = "vim:swap-case"
+    ["visual+shift+`"] = "vim:swap-case",
+    ["visual+u"] = "vim:lowercase",
+    ["visual+shift+u"] = "vim:uppercase"
 }
 
 --[[
