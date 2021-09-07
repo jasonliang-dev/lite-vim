@@ -6,7 +6,6 @@ TODO LIST
 (IN PROGRESS) combos (dw, yy, ...)
   - c prefix, (cw)
   - diw, cit
-(IN PROGRESS) search (/, n, N)
 (IN PROGRESS) commands, (:wq, :q!, :s/foo/bar/g)
 (IN PROGRESS) number + command (123g, 50j, d3w, y10l)
 visual block
@@ -300,35 +299,111 @@ function DocView:draw_line_body(idx, x, y)
     end
 end
 
-local function vim_previous_char(doc, line, col)
-    local line2
-    local col2
+local vim_translate = {
+    previous_char = function(doc, line, col)
+        local line2
+        local col2
 
-    repeat
-        line2, col2 = doc:position_offset(line, col, -1)
-    until not common.is_utf8_cont(doc:get_char(line2, col2))
+        repeat
+            line2, col2 = doc:position_offset(line, col, -1)
+        until not common.is_utf8_cont(doc:get_char(line2, col2))
 
-    if line ~= line2 then
-        return line, col
-    else
-        return line2, col2
+        if line ~= line2 then
+            return line, col
+        else
+            return line2, col2
+        end
+    end,
+    next_char = function(doc, line, col)
+        local line2
+        local col2
+
+        repeat
+            line2, col2 = doc:position_offset(line, col, 1)
+        until not common.is_utf8_cont(doc:get_char(line2, col2))
+
+        if line ~= line2 then
+            return line, col
+        else
+            return line2, col2
+        end
+    end,
+    other_delim = function(doc, line, col)
+        local line_sav, col_sav = line, col
+        local delim = doc:get_text(line, col, line, col + 1)
+
+        local forward = {
+            ["("] = ")",
+            ["["] = "]",
+            ["{"] = "}",
+            ["<"] = ">"
+        }
+
+        local other = forward[delim]
+        if other then
+            local start = col + 1
+            local count = 1
+
+            while line <= #doc.lines do
+                local text = doc:get_text(line, 1, line, math.huge)
+
+                for i = start, #text do
+                    local c = text:sub(i, i)
+
+                    if c == delim then
+                        count = count + 1
+                    elseif c == other then
+                        count = count - 1
+                    end
+
+                    if count == 0 then
+                        return line, i
+                    end
+                end
+
+                start = 1
+                line = line + 1
+            end
+        else
+            local backward = {
+                [")"] = "(",
+                ["]"] = "[",
+                ["}"] = "{",
+                [">"] = "<"
+            }
+
+            other = backward[delim]
+            if other then
+                local start = col - 1
+                local count = 1
+
+                local text = doc:get_text(line, 1, line, math.huge)
+                while line > 0 do
+                    for i = start, 1, -1 do
+                        local c = text:sub(i, i)
+
+                        if c == delim then
+                            count = count + 1
+                        elseif c == other then
+                            count = count - 1
+                        end
+
+                        if count == 0 then
+                            return line, i
+                        end
+                    end
+
+                    line = line - 1
+                    text = doc:get_text(line, 1, line, math.huge)
+                    start = #text
+                end
+            end
+        end
+
+        core.error("No matching item found")
+        return line_sav, col_sav
     end
-end
-
-local function vim_next_char(doc, line, col)
-    local line2
-    local col2
-
-    repeat
-        line2, col2 = doc:position_offset(line, col, 1)
-    until not common.is_utf8_cont(doc:get_char(line2, col2))
-
-    if line ~= line2 then
-        return line, col
-    else
-        return line2, col2
-    end
-end
+}
 
 local previous_exec_command = ""
 local exec_commands = {
@@ -346,7 +421,7 @@ command.add(
         end,
         ["vim:normal-mode"] = function()
             mode = "normal"
-            doc():move_to(vim_previous_char)
+            doc():move_to(vim_translate.previous_char)
             command.perform("command:escape")
         end,
         ["vim:visual-mode"] = function()
@@ -484,10 +559,10 @@ command.add(
             end
         end,
         ["vim:move-to-previous-char"] = function()
-            doc():move_to(vim_previous_char)
+            doc():move_to(vim_translate.previous_char)
         end,
         ["vim:move-to-next-char"] = function()
-            doc():move_to(vim_next_char)
+            doc():move_to(vim_translate.next_char)
         end,
         ["vim:move-to-visible-top"] = function()
             local min = dv():get_visible_line_range()
@@ -502,80 +577,7 @@ command.add(
             doc():set_selection(max, 1)
         end,
         ["vim:other-delim"] = function()
-            local line, col = doc():get_selection()
-            local delim = doc():get_text(line, col, line, col + 1)
-
-            local forward = {
-                ["("] = ")",
-                ["["] = "]",
-                ["{"] = "}",
-                ["<"] = ">"
-            }
-
-            local other = forward[delim]
-            if other then
-                local start = col + 1
-                local count = 1
-
-                while line <= #doc().lines do
-                    local text = doc():get_text(line, 1, line, math.huge)
-
-                    for i = start, #text do
-                        local c = text:sub(i, i)
-
-                        if c == delim then
-                            count = count + 1
-                        elseif c == other then
-                            count = count - 1
-                        end
-
-                        if count == 0 then
-                            doc():set_selection(line, i)
-                            return
-                        end
-                    end
-
-                    start = 1
-                    line = line + 1
-                end
-            else
-                local backward = {
-                    [")"] = "(",
-                    ["]"] = "[",
-                    ["}"] = "{",
-                    [">"] = "<"
-                }
-
-                other = backward[delim]
-                if other then
-                    local start = col - 1
-                    local count = 1
-
-                    local text = doc():get_text(line, 1, line, math.huge)
-                    while line > 0 do
-                        for i = start, 1, -1 do
-                            local c = text:sub(i, i)
-
-                            if c == delim then
-                                count = count + 1
-                            elseif c == other then
-                                count = count - 1
-                            end
-
-                            if count == 0 then
-                                doc():set_selection(line, i)
-                                return
-                            end
-                        end
-
-                        line = line - 1
-                        text = doc():get_text(line, 1, line, math.huge)
-                        start = #text
-                    end
-                end
-            end
-
-            core.error("No matching item found")
+            doc():move_to(vim_translate.other_delim)
         end,
         ["vim:save-and-close"] = function()
             command.perform("doc:save")
@@ -617,6 +619,10 @@ keymap.add {
     ["normal+u"] = "doc:undo",
     ["normal+ctrl+r"] = "doc:redo",
     -- cursor movement
+    ["normal+left"] = "vim:move-to-previous-char",
+    ["normal+down"] = "doc:move-to-next-line",
+    ["normal+up"] = "doc:move-to-previous-line",
+    ["normal+right"] = "vim:move-to-next-char",
     ["normal+h"] = "vim:move-to-previous-char",
     ["normal+j"] = "doc:move-to-next-line",
     ["normal+k"] = "doc:move-to-previous-line",
