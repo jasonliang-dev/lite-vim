@@ -5,13 +5,13 @@ vim.lua - see end of file for license information
 TODO LIST
 (IN PROGRESS) combos (dw, yy, ...)
   - c prefix, (cw)
+  - diw, cit
 (IN PROGRESS) search (/, n, N)
 (IN PROGRESS) commands, (:wq, :q!, :s/foo/bar/g)
 (IN PROGRESS) number + command (123g, 50j, d3w, y10l)
 visual block
 visual line
 repeat (.)
-go to other delim (%)
 scroll up/down by a line (ctrl+e, ctrl+y)
 macros (q, @)
 replace (r)
@@ -502,6 +502,80 @@ command.add(
             doc():set_selection(max, 1)
         end,
         ["vim:other-delim"] = function()
+            local line, col = doc():get_selection()
+            local delim = doc():get_text(line, col, line, col + 1)
+
+            local forward = {
+                ["("] = ")",
+                ["["] = "]",
+                ["{"] = "}",
+                ["<"] = ">"
+            }
+
+            local other = forward[delim]
+            if other then
+                local start = col + 1
+                local count = 1
+
+                while true do
+                    local text = doc():get_text(line, 1, line, math.huge)
+
+                    for i = start, #text do
+                        local c = text:sub(i, i)
+
+                        if c == delim then
+                            count = count + 1
+                        elseif c == other then
+                            count = count - 1
+                        end
+
+                        if count == 0 then
+                            doc():set_selection(line, i)
+                            return
+                        end
+                    end
+
+                    start = 1
+                    line = line + 1
+                end
+
+                return
+            end
+
+            local backward = {
+                [")"] = "(",
+                ["]"] = "[",
+                ["}"] = "{",
+                [">"] = "<"
+            }
+
+            other = backward[delim]
+            if other then
+                local start = col - 1
+                local count = 1
+
+                local text = doc():get_text(line, 1, line, math.huge)
+                while true do
+                    for i = start, 1, -1 do
+                        local c = text:sub(i, i)
+
+                        if c == delim then
+                            count = count + 1
+                        elseif c == other then
+                            count = count - 1
+                        end
+
+                        if count == 0 then
+                            doc():set_selection(line, i)
+                            return
+                        end
+                    end
+
+                    line = line - 1
+                    text = doc():get_text(line, 1, line, math.huge)
+                    start = #text
+                end
+            end
         end,
         ["vim:save-and-close"] = function()
             command.perform("doc:save")
