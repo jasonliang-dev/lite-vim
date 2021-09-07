@@ -13,14 +13,13 @@ visual line
 repeat (.)
 scroll up/down by a line (ctrl+e, ctrl+y)
 macros (q, @)
-replace (r)
-find (f, t)
 marks (``, m)
 swap case (~)
 
 TOFIX LIST
-(high) visual selection off by one when moving cursor back
+(high) visual selection off by one when moving cursor back, clearing text, etc
 (high) forward/back word doesn't share the same behaviour from vim
+(low) autocomplete shows up when using find (f)
 (low) undo selects text. should it go into insert mode?
 (low) find next/prev always goes to visual mode even if there's no results
 (low) ctrl+d, ctrl+u should be a half scroll
@@ -52,12 +51,85 @@ end
 -- one of: "normal", "visual", "insert"
 local mode = "normal"
 
-local mini_modes = {
-    find = {},
-    find_til = {},
-    replace = {},
-    macro = {},
-    mark = {}
+-- one of values in mini_mode_callbacks
+local mini_mode
+local mini_mode_callbacks = {
+    find = function(input_text)
+        local line, col = doc():get_selection()
+        local text = doc():get_text(line, 1, line, math.huge)
+
+        for i = col + 1, #text do
+            local c = text:sub(i, i)
+
+            if c == input_text then
+                doc():set_selection(line, i)
+                return
+            end
+        end
+
+        core.error("Can't find " .. input_text)
+    end,
+    find_backwards = function(input_text)
+        local line, col = doc():get_selection()
+        local text = doc():get_text(line, 1, line, math.huge)
+
+        for i = col - 1, 1, -1 do
+            local c = text:sub(i, i)
+
+            if c == input_text then
+                doc():set_selection(line, i)
+                return
+            end
+        end
+
+        core.error("Can't find " .. input_text)
+    end,
+    find_til = function(input_text)
+        local line, col = doc():get_selection()
+        local text = doc():get_text(line, 1, line, math.huge)
+
+        for i = col + 1, #text do
+            local c = text:sub(i, i)
+
+            if c == input_text then
+                doc():set_selection(line, i - 1)
+                return
+            end
+        end
+
+        core.error("Can't find " .. input_text)
+    end,
+    find_til_backwards = function(input_text)
+        local line, col = doc():get_selection()
+        local text = doc():get_text(line, 1, line, math.huge)
+
+        for i = col - 1, 1, -1 do
+            local c = text:sub(i, i)
+
+            if c == input_text then
+                doc():set_selection(line, i + 1)
+                return
+            end
+        end
+
+        core.error("Can't find " .. input_text)
+    end,
+    replace = function(input_text)
+        local l1, c1, l2, c2 = doc():get_selection()
+
+        local swap = l2 < l1 or (l2 == l1 and c2 <= c1)
+        if swap then
+            l1, c1, l2, c2 = l2, c2, l1, c1
+        end
+
+        c2 = c2 + 1
+
+        local text = doc():get_text(l1, c1, l2, c2)
+        doc():remove(l1, c1, l2, c2)
+        doc():insert(l1, c1, string.rep(input_text, #text))
+    end,
+    macro = nil,
+    mark = nil
 }
 
 local stroke_combo_tree = {
@@ -118,6 +190,10 @@ function keymap.on_key_pressed(k)
     end
 
     local stroke = key_to_stroke(k)
+
+    if mini_mode then
+        return false
+    end
 
     -- workaround for (normal+0)
     if not (stroke == "0" and n_repeat ~= 0) then
@@ -183,30 +259,30 @@ function keymap.on_key_pressed(k)
     return false
 end
 
-local function mouse_selection(doc, clicks, line1, col1, line2, col2)
-    local swap = line2 < line1 or line2 == line1 and col2 <= col1
+local function mouse_selection(doc, clicks, l1, c1, l2, c2)
+    local swap = l2 < l1 or l2 == l1 and c2 <= c1
     if swap then
-        line1, col1, line2, col2 = line2, col2, line1, col1
+        l1, c1, l2, c2 = l2, c2, l1, c1
     end
 
     if clicks == 2 then
-        line1, col1 = translate.start_of_word(doc, line1, col1)
-        line2, col2 = translate.end_of_word(doc, line2, col2)
+        l1, c1 = translate.start_of_word(doc, l1, c1)
+        l2, c2 = translate.end_of_word(doc, l2, c2)
     elseif clicks == 3 then
-        if line2 == #doc.lines and doc.lines[#doc.lines] ~= "\n" then
+        if l2 == #doc.lines and doc.lines[#doc.lines] ~= "\n" then
             doc:insert(math.huge, math.huge, "\n")
         end
-        line1, col1, line2, col2 = line1, 1, line2 + 1, 1
+        l1, c1, l2, c2 = l1, 1, l2 + 1, 1
     end
 
-    if mode ~= "insert" and (line1 ~= line2 or col1 ~= col2) then
+    if mode ~= "insert" and (l1 ~= l2 or c1 ~= c2) then
         mode = "visual"
     end
 
     if swap then
-        return line2, col2, line1, col1
+        return l2, c2, l1, c1
     end
-    return line1, col1, line2, col2
+    return l1, c1, l2, c2
 end
 
 local command_view_enter = CommandView.enter
@@ -271,6 +347,15 @@ function DocView:on_mouse_moved(x, y, ...)
 
         local clicks = self.mouse_selecting.clicks
         self.doc:set_selection(mouse_selection(self.doc, clicks, l1, c1, l2, c2))
+    end
+end
+
+function DocView:on_text_input(text)
+    if mini_mode then
+        mini_mode(text)
+        mini_mode = nil
+    else
+        self.doc:text_input(text)
     end
 end
 
@@ -509,6 +594,18 @@ command.add(
             mode = "insert"
             command.perform("core:find-command")
         end,
+        ["vim:find-char"] = function()
+            mini_mode = mini_mode_callbacks.find
+        end,
+        ["vim:find-char-backwards"] = function()
+            mini_mode = mini_mode_callbacks.find_backwards
+        end,
+        ["vim:find-char-til"] = function()
+            mini_mode = mini_mode_callbacks.find_til
+        end,
+        ["vim:find-char-til-backwards"] = function()
+            mini_mode = mini_mode_callbacks.find_til_backwards
+        end,
         ["vim:find-file"] = function()
             mode = "insert"
             command.perform("core:find-file")
@@ -579,6 +676,9 @@ command.add(
         ["vim:other-delim"] = function()
             doc():move_to(vim_translate.other_delim)
         end,
+        ["vim:replace"] = function()
+            mini_mode = mini_mode_callbacks.replace
+        end,
         ["vim:save-and-close"] = function()
             command.perform("doc:save")
             command.perform("root:close")
@@ -618,6 +718,7 @@ keymap.add {
     ["normal+y+#+w"] = "vim:copy-n-words",
     ["normal+u"] = "doc:undo",
     ["normal+ctrl+r"] = "doc:redo",
+    ["normal+r"] = "vim:replace",
     -- cursor movement
     ["normal+left"] = "vim:move-to-previous-char",
     ["normal+down"] = "doc:move-to-next-line",
@@ -640,6 +741,10 @@ keymap.add {
     ["normal+ctrl+u"] = "doc:move-to-previous-page",
     ["normal+shift+g"] = "vim:move-to-line",
     ["normal+g+g"] = "doc:move-to-start-of-doc",
+    ["normal+f"] = "vim:find-char",
+    ["normal+shift+f"] = "vim:find-char-backwards",
+    ["normal+t"] = "vim:find-char-til",
+    ["normal+shift+t"] = "vim:find-char-til-backwards",
     -- splits
     ["normal+ctrl+w+v"] = "root:split-right",
     ["normal+ctrl+w+s"] = "root:split-down",
@@ -668,7 +773,8 @@ keymap.add {
     ["visual+shift+n"] = "vim:find-previous",
     ["visual+x"] = "vim:delete-selection",
     ["visual+c"] = "vim:change-selection",
-    ["visual+y"] = "vim:copy"
+    ["visual+y"] = "vim:copy",
+    ["visual+r"] = "vim:replace"
 }
 
 --[[
