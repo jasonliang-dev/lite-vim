@@ -15,7 +15,6 @@ scroll up/down by a line (ctrl+e, ctrl+y)
 macros (q, @)
 marks (``, m)
 swap case (~)
-indent (<<, >>)
 
 TOFIX LIST
 (high) visual selection off by one when moving cursor back, clearing text, etc
@@ -37,6 +36,7 @@ local DocView = require "core.docview"
 local style = require "core.style"
 local translate = require "core.doc.translate"
 local common = require "core.common"
+local config = require "core.config"
 
 local has_autoindent =
     system.get_file_info "data/plugins/autoindent.lua" or system.get_file_info "data/user/plugins/autoindent.lua"
@@ -59,6 +59,8 @@ local n_repeat = 0
 local stroke_combo_tree = {
     normal = {
         ["ctrl+w"] = {},
+        ["shift+,"] = {},
+        ["shift+."] = {},
         c = {},
         d = {
             g = {},
@@ -71,7 +73,9 @@ local stroke_combo_tree = {
         }
     },
     visual = {
-        g = {}
+        g = {},
+        ["shift+,"] = {},
+        ["shift+."] = {}
     }
 }
 
@@ -203,6 +207,7 @@ function keymap.on_key_pressed(k)
     end
 
     local stroke = key_to_stroke(k)
+    -- print(mode .. stroke_combo_string .. "+" .. stroke)
 
     -- workaround for (normal+0)
     if not (stroke == "0" and n_repeat ~= 0) then
@@ -627,6 +632,54 @@ command.add(
             mode = "visual"
             command.perform "find-replace:previous-find"
         end,
+        ["vim:indent-left"] = function()
+            mode = "normal"
+            local l1, c1, l2, c2 = doc():get_selection()
+
+            local swap = l2 < l1 or (l2 == l1 and c2 <= c1)
+            if swap then
+                l1, c1, l2, c2 = l2, c2, l1, c1
+            end
+
+            for i = l1, l2 do
+                local text = doc():get_text(i, 1, i, math.huge)
+                doc():remove(i, 1, i, math.huge)
+
+                if config.tab_type == "soft" then
+                    if text:match("^" .. string.rep(" ", config.indent_size)) then
+                        doc():insert(i, 1, text:sub(config.indent_size + 1))
+                    end
+                else
+                    if text:match("^\t") then
+                        doc():insert(i, 1, text:sub(2))
+                    end
+                end
+            end
+
+            doc():set_selection(l1, c1)
+        end,
+        ["vim:indent-right"] = function()
+            mode = "normal"
+            local l1, c1, l2, c2 = doc():get_selection()
+
+            local swap = l2 < l1 or (l2 == l1 and c2 <= c1)
+            if swap then
+                l1, c1, l2, c2 = l2, c2, l1, c1
+            end
+
+            for i = l1, l2 do
+                local text = doc():get_text(i, 1, i, math.huge)
+                doc():remove(i, 1, i, math.huge)
+
+                if config.tab_type == "soft" then
+                    doc():insert(i, 1, string.rep(" ", config.indent_size) .. text)
+                else
+                    doc():insert(i, 1, "\t" .. text)
+                end
+            end
+
+            doc():set_selection(l1, c1)
+        end,
         ["vim:insert-end-of-line"] = function()
             mode = "insert"
             command.perform "doc:move-to-end-of-line"
@@ -749,6 +802,8 @@ keymap.add {
     ["normal+ctrl+r"] = "doc:redo",
     ["normal+r"] = "vim:replace",
     ["normal+shift+j"] = "vim:join-lines",
+    ["normal+shift+,+shift+,"] = "vim:indent-left",
+    ["normal+shift+.+shift+."] = "vim:indent-right",
     -- cursor movement
     ["normal+left"] = "vim:move-to-previous-char",
     ["normal+down"] = "doc:move-to-next-line",
@@ -807,7 +862,9 @@ keymap.add {
     ["visual+y"] = "vim:copy",
     ["visual+r"] = "vim:replace",
     ["visual+u"] = "vim:exit-visual-mode",
-    ["visual+shift+j"] = "vim:join-lines"
+    ["visual+shift+j"] = "vim:join-lines",
+    ["visual+shift+,"] = "vim:indent-left",
+    ["visual+shift+."] = "vim:indent-right"
 }
 
 --[[
