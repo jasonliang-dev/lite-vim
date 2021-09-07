@@ -51,8 +51,36 @@ end
 -- one of: "normal", "visual", "insert"
 local mode = "normal"
 
+-- used for number + command (50j to down down 50 lines, y3w to copy 3 words, etc)
+local n_repeat = 0
+
+local stroke_combo_tree = {
+    normal = {
+        ["ctrl+w"] = {},
+        c = {},
+        d = {
+            g = {},
+            ["#"] = {}
+        },
+        g = {},
+        m = {},
+        y = {
+            ["#"] = {}
+        }
+    },
+    visual = {
+        g = {}
+    }
+}
+
+-- always a reference to an item in stroke_combo_tree
+local stroke_combo_loc = stroke_combo_tree[mode]
+-- key buffer
+local stroke_combo_string = ""
+
 -- one of values in mini_mode_callbacks
 local mini_mode
+
 local mini_mode_callbacks = {
     find = function(input_text)
         local line, col = doc():get_selection()
@@ -127,34 +155,8 @@ local mini_mode_callbacks = {
         local text = doc():get_text(l1, c1, l2, c2)
         doc():remove(l1, c1, l2, c2)
         doc():insert(l1, c1, string.rep(input_text, #text))
-    end,
-    macro = nil,
-    mark = nil
+    end
 }
-
-local stroke_combo_tree = {
-    normal = {
-        ["ctrl+w"] = {},
-        c = {},
-        d = {
-            g = {},
-            ["#"] = {}
-        },
-        g = {},
-        m = {},
-        y = {
-            ["#"] = {}
-        }
-    },
-    visual = {
-        g = {}
-    }
-}
-
-local stroke_combo_string = ""
-local stroke_combo_loc = stroke_combo_tree[mode]
-
-local n_repeat = 0
 
 local modkey_map = {
     ["left ctrl"] = "ctrl",
@@ -178,6 +180,10 @@ local function key_to_stroke(k)
 end
 
 function keymap.on_key_pressed(k)
+    if mini_mode then
+        return false
+    end
+
     local mk = modkey_map[k]
     if mk then
         keymap.modkeys[mk] = true
@@ -190,10 +196,6 @@ function keymap.on_key_pressed(k)
     end
 
     local stroke = key_to_stroke(k)
-
-    if mini_mode then
-        return false
-    end
 
     -- workaround for (normal+0)
     if not (stroke == "0" and n_repeat ~= 0) then
@@ -370,7 +372,7 @@ function DocView:draw_line_body(idx, x, y)
         if line == idx and dv() == self and system.window_has_focus() then
             local lh = self:get_line_height()
             local x1 = x + self:get_col_x_offset(line, col)
-            local w = self:get_font():get_width(" ")
+            local w = self:get_font():get_width " "
 
             if mode == "visual" then
                 renderer.draw_rect(x1, y, w, lh, visual_caret_color)
@@ -485,7 +487,7 @@ local vim_translate = {
             end
         end
 
-        core.error("No matching item found")
+        core.error "No matching item found"
         return line_sav, col_sav
     end
 }
@@ -507,28 +509,28 @@ command.add(
         ["vim:normal-mode"] = function()
             mode = "normal"
             doc():move_to(vim_translate.previous_char)
-            command.perform("command:escape")
+            command.perform "command:escape"
         end,
         ["vim:visual-mode"] = function()
             mode = "visual"
         end,
         ["vim:exit-visual-mode"] = function()
             mode = "normal"
-            command.perform("doc:select-none")
+            command.perform "doc:select-none"
         end,
         ["vim:change-end-of-line"] = function()
             mode = "insert"
             doc():select_to(translate.end_of_line, dv())
-            command.perform("doc:cut")
+            command.perform "doc:cut"
         end,
         ["vim:change-selection"] = function()
             mode = "insert"
-            command.perform("doc:cut")
+            command.perform "doc:cut"
         end,
         ["vim:change-word"] = function()
             mode = "insert"
             doc():select_to(translate.next_word_end, dv())
-            command.perform("doc:cut")
+            command.perform "doc:cut"
         end,
         ["vim:copy"] = function()
             mode = "normal"
@@ -556,24 +558,24 @@ command.add(
                 doc():select_to(translate.next_word_end, dv())
             end
 
-            command.perform("doc:copy")
+            command.perform "doc:copy"
             doc():set_selection(line, col)
         end,
         ["vim:delete-char"] = function()
             doc():select_to(translate.next_char, dv())
-            command.perform("doc:cut")
+            command.perform "doc:cut"
         end,
         ["vim:delete-end-of-line"] = function()
             doc():select_to(translate.end_of_line, dv())
-            command.perform("doc:cut")
+            command.perform "doc:cut"
         end,
         ["vim:delete-selection"] = function()
             mode = "normal"
-            command.perform("doc:cut")
+            command.perform "doc:cut"
         end,
         ["vim:delete-word"] = function()
             doc():select_to(translate.next_word_end, dv())
-            command.perform("doc:cut")
+            command.perform "doc:cut"
         end,
         ["vim:exec"] = function()
             core.command_view:set_text(previous_exec_command, true)
@@ -592,7 +594,7 @@ command.add(
         end,
         ["vim:find-command"] = function()
             mode = "insert"
-            command.perform("core:find-command")
+            command.perform "core:find-command"
         end,
         ["vim:find-char"] = function()
             mini_mode = mini_mode_callbacks.find
@@ -608,19 +610,19 @@ command.add(
         end,
         ["vim:find-file"] = function()
             mode = "insert"
-            command.perform("core:find-file")
+            command.perform "core:find-file"
         end,
         ["vim:find-next"] = function()
             mode = "visual"
-            command.perform("find-replace:repeat-find")
+            command.perform "find-replace:repeat-find"
         end,
         ["vim:find-previous"] = function()
             mode = "visual"
-            command.perform("find-replace:previous-find")
+            command.perform "find-replace:previous-find"
         end,
         ["vim:insert-end-of-line"] = function()
             mode = "insert"
-            command.perform("doc:move-to-end-of-line")
+            command.perform "doc:move-to-end-of-line"
         end,
         ["vim:insert-next-char"] = function()
             mode = "insert"
@@ -635,16 +637,20 @@ command.add(
         end,
         ["vim:insert-newline-above"] = function()
             mode = "insert"
-            command.perform("doc:newline-above")
+            command.perform "doc:newline-above"
         end,
         ["vim:insert-newline-below"] = function()
             mode = "insert"
 
             if has_autoindent then
-                command.perform("autoindent:newline-below")
+                command.perform "autoindent:newline-below"
             else
-                command.perform("doc:newline-below")
+                command.perform "doc:newline-below"
             end
+        end,
+        ["vim:join-lines"] = function()
+            mode = "normal"
+            command.perform "doc:join-lines"
         end,
         ["vim:move-to-line"] = function()
             if n_repeat ~= 0 then
@@ -652,7 +658,7 @@ command.add(
                 doc():set_selection(n_repeat, 1)
                 n_repeat = 0
             else
-                command.perform("doc:move-to-end-of-doc")
+                command.perform "doc:move-to-end-of-doc"
             end
         end,
         ["vim:move-to-previous-char"] = function()
@@ -680,8 +686,8 @@ command.add(
             mini_mode = mini_mode_callbacks.replace
         end,
         ["vim:save-and-close"] = function()
-            command.perform("doc:save")
-            command.perform("root:close")
+            command.perform "doc:save"
+            command.perform "root:close"
         end
     }
 )
@@ -719,6 +725,7 @@ keymap.add {
     ["normal+u"] = "doc:undo",
     ["normal+ctrl+r"] = "doc:redo",
     ["normal+r"] = "vim:replace",
+    ["normal+shift+j"] = "vim:join-lines",
     -- cursor movement
     ["normal+left"] = "vim:move-to-previous-char",
     ["normal+down"] = "doc:move-to-next-line",
@@ -774,7 +781,9 @@ keymap.add {
     ["visual+x"] = "vim:delete-selection",
     ["visual+c"] = "vim:change-selection",
     ["visual+y"] = "vim:copy",
-    ["visual+r"] = "vim:replace"
+    ["visual+r"] = "vim:replace",
+    ["visual+u"] = "vim:exit-visual-mode",
+    ["visual+shift+j"] = "vim:join-lines",
 }
 
 --[[
