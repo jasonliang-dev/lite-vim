@@ -18,7 +18,6 @@ marks (``, m)
 TOFIX LIST
 (high) visual selection off by one when moving cursor back, clearing text, etc
 (high) forward/back word doesn't share the same behaviour from vim
-(high) undo selects text
 (low) autocomplete shows up when using find (f)
 (low) find next/prev always goes to visual mode even if there's no results
     - should find/repeat-find even go into visual mode?
@@ -32,6 +31,7 @@ local keymap = require "core.keymap"
 local command = require "core.command"
 local CommandView = require "core.commandview"
 local DocView = require "core.docview"
+local Doc = require "core.doc"
 local style = require "core.style"
 local translate = require "core.doc.translate"
 local common = require "core.common"
@@ -310,6 +310,16 @@ function CommandView:exit(submitted, inexplicit)
     command_view_exit(self, submitted, inexplicit)
 end
 
+local doc_undo = Doc.undo
+function Doc:undo()
+    doc_undo(self)
+
+    if mode ~= "insert" then
+        local line, col = self:get_selection()
+        self:set_selection(line, col)
+    end
+end
+
 function DocView:on_mouse_pressed(button, x, y, clicks)
     local caught = DocView.super.on_mouse_pressed(self, button, x, y, clicks)
     if caught then
@@ -392,6 +402,10 @@ function DocView:draw_line_body(idx, x, y)
     end
 end
 
+local function is_non_word(char)
+    return config.non_word_chars:find(char, nil, true)
+end
+
 local vim_translate = {
     previous_char = function(doc, line, col)
         local line2
@@ -420,6 +434,22 @@ local vim_translate = {
         else
             return line2, col2
         end
+    end,
+    previous_word = function(doc, line, col)
+        return translate.previous_word_start(doc, line, col)
+    end,
+    next_word = function(doc, line, col)
+        local prev
+        local end_line, end_col = translate.end_of_doc(doc, line, col)
+        while line < end_line or col < end_col do
+            local char = doc:get_char(line, col)
+            if prev and prev ~= char or not is_non_word(char) then
+                break
+            end
+            line, col = doc:position_offset(line, col, 1)
+            prev = char
+        end
+        return translate.end_of_word(doc, line, col)
     end,
     other_delim = function(doc, line, col)
         local line2, col2 = line, col
@@ -728,6 +758,12 @@ command.add(
         ["vim:move-to-next-char"] = function()
             doc():move_to(vim_translate.next_char)
         end,
+        ["vim:move-to-previous-word"] = function()
+            doc():move_to(vim_translate.previous_word)
+        end,
+        ["vim:move-to-next-word"] = function()
+            doc():move_to(vim_translate.next_word)
+        end,
         ["vim:move-to-visible-top"] = function()
             local min = dv():get_visible_line_range()
             doc():set_selection(min, 1)
@@ -745,6 +781,14 @@ command.add(
         end,
         ["vim:replace"] = function()
             mini_mode = mini_mode_callbacks.replace
+        end,
+        ["vim:scroll-down"] = function()
+            local line = doc():get_selection()
+            dv():scroll_to_line(line + 1)
+        end,
+        ["vim:scroll-up"] = function()
+            local line = doc():get_selection()
+            dv():scroll_to_line(line - 1)
         end,
         ["vim:save-and-close"] = function()
             command.perform "doc:save"
@@ -844,8 +888,8 @@ keymap.add {
     ["normal+j"] = "doc:move-to-next-line",
     ["normal+k"] = "doc:move-to-previous-line",
     ["normal+l"] = "vim:move-to-next-char",
-    ["normal+b"] = "doc:move-to-previous-word-start",
-    ["normal+w"] = "doc:move-to-next-word-end",
+    ["normal+b"] = "vim:move-to-previous-word",
+    ["normal+w"] = "vim:move-to-next-word",
     ["normal+e"] = "doc:move-to-next-word-end",
     ["normal+0"] = "doc:move-to-start-of-line",
     ["normal+shift+4"] = "doc:move-to-end-of-line",
@@ -861,6 +905,8 @@ keymap.add {
     ["normal+shift+f"] = "vim:find-char-backwards",
     ["normal+t"] = "vim:find-char-til",
     ["normal+shift+t"] = "vim:find-char-til-backwards",
+    ["normal+ctrl+e"] = "vim:scroll-down",
+    ["normal+ctrl+y"] = "vim:scroll-up",
     -- splits
     ["normal+ctrl+w+v"] = "root:split-right",
     ["normal+ctrl+w+s"] = "root:split-down",
@@ -898,7 +944,9 @@ keymap.add {
     ["visual+shift+."] = "vim:indent-right",
     ["visual+shift+`"] = "vim:swap-case",
     ["visual+u"] = "vim:lowercase",
-    ["visual+shift+u"] = "vim:uppercase"
+    ["visual+shift+u"] = "vim:uppercase",
+    ["visual+p"] = "doc:paste",
+    ["visual+shift+p"] = "doc:paste"
 }
 
 --[[
