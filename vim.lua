@@ -11,7 +11,6 @@ TODO LIST
 visual block
 visual line
 repeat (.)
-scroll up/down by a line (ctrl+e, ctrl+y)
 macros (q, @)
 marks (``, m)
 
@@ -385,12 +384,14 @@ function DocView:draw_line_body(idx, x, y)
     draw_line_body(self, idx, x, y)
 
     if mode == "normal" or mode == "visual" then
-        if line == idx and dv() == self and system.window_has_focus() then
+        if line == idx and system.window_has_focus() then
             local lh = self:get_line_height()
             local x1 = x + self:get_col_x_offset(line, col)
             local w = self:get_font():get_width " "
 
-            if mode == "visual" then
+            if dv() ~= self then
+                renderer.draw_rect(x1, y, w, lh, style.syntax.keyword)
+            elseif mode == "visual" then
                 renderer.draw_rect(x1, y, w, lh, visual_caret_color)
             else
                 renderer.draw_rect(x1, y, w, lh, style.caret)
@@ -783,12 +784,12 @@ command.add(
             mini_mode = mini_mode_callbacks.replace
         end,
         ["vim:scroll-down"] = function()
-            local line = doc():get_selection()
-            dv():scroll_to_line(line + 1)
+            local lh = dv():get_line_height()
+            dv().scroll.to.y = dv().scroll.to.y + lh
         end,
         ["vim:scroll-up"] = function()
-            local line = doc():get_selection()
-            dv():scroll_to_line(line - 1)
+            local lh = dv():get_line_height()
+            dv().scroll.to.y = math.max(0, dv().scroll.to.y - lh)
         end,
         ["vim:save-and-close"] = function()
             command.perform "doc:save"
