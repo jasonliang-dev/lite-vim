@@ -6,7 +6,10 @@ TODO LIST
 (IN PROGRESS) combos (dw, yy, ...)
     - c prefix, (cw)
     - diw, cit
-(IN PROGRESS) commands, (:wq, :q!, :s/foo/bar/g)
+(IN PROGRESS) commands
+    - :q!
+    - :nohl
+    - :s/foo/bar/g
 (IN PROGRESS) number + command (123g, 50j, d3w, y10l)
 visual block
 repeat (.)
@@ -15,11 +18,13 @@ marks (``, m)
 
 TOFIX LIST
 (high) forward/back word doesn't share the same behaviour from vim
+(high) find next should only highlight, not go into visual mode
 (low) cursor should always stay in view (ctrl+e/y, mouse wheel, same file in different splits)
 (low) autocomplete shows up when using find (f)
-(low) find next/prev always goes to visual mode even if there's no results
-    - should find/repeat-find even go into visual mode?
 (low) cursor shouldn't be able to sit on the newline
+(low) replace chars in visual mode is broken. newlines ignored
+(low) visual line submode ignored when pasting
+(low) pasting
 
 --]]
 local core = require "core"
@@ -61,6 +66,19 @@ local function insert_mode()
     visual_submode = nil
 end
 
+local function get_selection(doc)
+    local l1, c1, l2, c2 = doc:get_selection(true)
+
+    if visual_submode == "line" then
+        c1 = 1
+        c2 = #doc.lines[l2]
+    else
+        c2 = c2 + 1
+    end
+
+    return l1, c1, l2, c2
+end
+
 -- used for number + command (50j to down down 50 lines, y3w to copy 3 words, etc)
 local n_repeat = 0
 
@@ -75,7 +93,6 @@ local stroke_combo_tree = {
             ["#"] = {}
         },
         g = {},
-        m = {},
         y = {
             ["#"] = {}
         }
@@ -87,6 +104,41 @@ local stroke_combo_tree = {
     },
     insert = {}
 }
+
+-- merge t2 into t1
+local function merge_trees(t1, t2)
+    if not t1 then
+        return
+    end
+
+    for k, v in pairs(t2) do
+        if t1[k] then
+            merge_trees(t1[k], v)
+        else
+            t1[k] = v
+        end
+    end
+end
+
+--[[
+local function inspect_tree(tree, indent)
+    indent = indent or 0
+    local str = ""
+
+    if not tree then
+        str = str .. "nil\n"
+    else
+        str = str .. "{\n"
+        for k, v in pairs(tree) do
+            str =
+                str .. string.rep(" ", indent + 4) .. string.format("['%s'] = %s", k, inspect_tree(tree[k], indent + 4))
+        end
+        str = str .. string.rep(" ", indent) .. "}\n"
+    end
+
+    return str
+end
+--]]
 
 -- should be a reference to an item in stroke_combo_tree
 local stroke_combo_loc = stroke_combo_tree[mode]
@@ -158,9 +210,7 @@ local mini_mode_callbacks = {
         core.error("Can't find " .. input_text)
     end,
     replace = function(input_text)
-        local l1, c1, l2, c2 = doc():get_selection(true)
-
-        c2 = c2 + 1
+        local l1, c1, l2, c2 = get_selection(doc())
 
         local text = doc():get_text(l1, c1, l2, c2)
         doc():remove(l1, c1, l2, c2)
@@ -286,15 +336,20 @@ local function mouse_selection(doc, clicks, l1, c1, l2, c2)
     if clicks == 2 then
         l1, c1 = translate.start_of_word(doc, l1, c1)
         l2, c2 = translate.end_of_word(doc, l2, c2)
+        c2 = c2 - 1
     elseif clicks == 3 then
         if l2 == #doc.lines and doc.lines[#doc.lines] ~= "\n" then
             doc:insert(math.huge, math.huge, "\n")
         end
-        l1, c1, l2, c2 = l1, 1, l2 + 1, 1
+        l1, c1, l2, c2 = l1, 1, l2, math.huge
     end
 
     if mode ~= "insert" and (l1 ~= l2 or c1 ~= c2) then
         visual_mode()
+
+        if clicks == 3 then
+            visual_submode = "line"
+        end
     end
 
     if swap then
@@ -615,7 +670,7 @@ local vim_translate = {
             end
         end
 
-        core.error "No matching item found"
+        -- core.error "No matching item found"
         return line2, col2
     end,
     page_down = function(doc, line, col, dv)
@@ -644,67 +699,59 @@ local vim_translate = {
 
 local commands = {
     ["vim:debug"] = function()
-        local line1, col1, line2, col2 = doc():get_selection(true)
-        print(line1, col1, line2, col2)
+        -- local line1, col1, line2, col2 = doc():get_selection(true)
+        -- print(line1, col1, line2, col2)
+    end,
+    ["vim:use-user-stroke-combos"] = function()
+       merge_trees(stroke_combo_tree, config.vim_stroke_combos or {})
     end,
     ["vim:insert-mode"] = insert_mode,
     ["vim:normal-mode"] = function()
-        normal_mode()
         doc():move_to(vim_translate.previous_char, dv())
         command.perform "command:escape"
+        normal_mode()
     end,
     ["vim:visual-mode"] = visual_mode,
     ["vim:visual-line-mode"] = function()
         visual_mode("line")
     end,
     ["vim:exit-visual-mode"] = function()
-        normal_mode()
         command.perform "doc:select-none"
+        normal_mode()
     end,
     ["vim:change-end-of-line"] = function()
-        insert_mode()
         doc():select_to(translate.end_of_line, dv())
         command.perform "doc:cut"
+        insert_mode()
+    end,
+    ["vim:change-line"] = function()
+        local line = doc():get_selection()
+        doc():set_selection(line, 1, line, math.huge)
+        command.perform "doc:cut"
+        insert_mode()
     end,
     ["vim:change-selection"] = function()
         command.perform "vim:cut"
         insert_mode()
     end,
     ["vim:change-word"] = function()
-        insert_mode()
         doc():select_to(translate.next_word_end, dv())
         command.perform "doc:cut"
+        insert_mode()
     end,
     ["vim:copy"] = function()
-        local l1, c1, l2, c2 = doc():get_selection(true)
-
-        if visual_submode == "line" then
-            c1 = 1
-            c2 = #doc().lines[l2]
-        else
-            c2 = c2 + 1
-        end
-
+        local l1, c1, l2, c2 = get_selection(doc())
         local text = doc():get_text(l1, c1, l2, c2)
         system.set_clipboard(text)
         doc():set_selection(l1, c1)
         normal_mode()
     end,
     ["vim:cut"] = function()
-        local l1, c1, l2, c2 = doc():get_selection(true)
-
-        if visual_submode == "line" then
-            c1 = 1
-            c2 = #doc().lines[l2]
-        else
-            c2 = c2 + 1
-        end
-
+        local l1, c1, l2, c2 = get_selection(doc())
         local text = doc():get_text(l1, c1, l2, c2)
-        doc():remove(l1, c1, l2, c2)
-        doc():set_selection(l1, c1)
-
         system.set_clipboard(text)
+        doc():set_selection(l1, c1)
+        doc():remove(l1, c1, l2, c2)
     end,
     ["vim:copy-line"] = function()
         local line = doc():get_selection()
@@ -728,10 +775,25 @@ local commands = {
         doc():select_to(translate.end_of_line, dv())
         command.perform "doc:cut"
     end,
+    ["vim:delete-lines"] = function()
+        local line = doc():get_selection()
+        if n_repeat ~= 0 then
+            doc():set_selection(line, 1, line + n_repeat, 1)
+            n_repeat = 0
+        else
+            doc():set_selection(line, 1, line + 1, 1)
+        end
+
+        command.perform "doc:cut"
+    end,
     ["vim:delete-selection"] = function()
         command.perform "vim:cut"
-        local line = doc():get_selection()
-        doc():remove(line, 1, line + 1, 1)
+
+        if visual_submode == "line" then
+            local line = doc():get_selection()
+            doc():remove(line, 1, line + 1, 1)
+        end
+
         normal_mode()
     end,
     ["vim:delete-word"] = function()
@@ -754,8 +816,8 @@ local commands = {
         )
     end,
     ["vim:find-command"] = function()
-        insert_mode()
         command.perform "core:find-command"
+        insert_mode()
     end,
     ["vim:find-char"] = function()
         mini_mode = mini_mode_callbacks.find
@@ -770,20 +832,19 @@ local commands = {
         mini_mode = mini_mode_callbacks.find_til_backwards
     end,
     ["vim:find-file"] = function()
-        insert_mode()
         command.perform "core:find-file"
+        insert_mode()
     end,
     ["vim:find-next"] = function()
-        visual_mode()
         command.perform "find-replace:repeat-find"
+        visual_mode()
     end,
     ["vim:find-previous"] = function()
-        visual_mode()
         command.perform "find-replace:previous-find"
+        visual_mode()
     end,
     ["vim:indent-left"] = function()
-        normal_mode()
-        local l1, c1, l2, c2 = doc():get_selection(true)
+        local l1, c1, l2 = doc():get_selection(true)
 
         for i = l1, l2 do
             local text = doc():get_text(i, 1, i, math.huge)
@@ -801,10 +862,10 @@ local commands = {
         end
 
         doc():set_selection(l1, c1)
+        normal_mode()
     end,
     ["vim:indent-right"] = function()
-        normal_mode()
-        local l1, c1, l2, c2 = doc():get_selection(true)
+        local l1, c1, l2 = doc():get_selection(true)
 
         for i = l1, l2 do
             local text = doc():get_text(i, 1, i, math.huge)
@@ -818,13 +879,13 @@ local commands = {
         end
 
         doc():set_selection(l1, c1)
+        normal_mode()
     end,
     ["vim:insert-end-of-line"] = function()
-        insert_mode()
         command.perform "doc:move-to-end-of-line"
+        insert_mode()
     end,
     ["vim:insert-next-char"] = function()
-        insert_mode()
         local line, col = doc():get_selection()
         local next_line, next_col = translate.next_char(doc(), line, col)
 
@@ -833,23 +894,23 @@ local commands = {
         else
             doc():move_to(translate.next_char, dv())
         end
+
+        insert_mode()
     end,
     ["vim:insert-newline-above"] = function()
-        insert_mode()
         command.perform "doc:newline-above"
+        insert_mode()
     end,
     ["vim:insert-newline-below"] = function()
-        insert_mode()
         command.perform "doc:newline-below"
+        insert_mode()
     end,
     ["vim:join-lines"] = function()
-        normal_mode()
         command.perform "doc:join-lines"
+        normal_mode()
     end,
     ["vim:lowercase"] = function()
-        local l1, c1, l2, c2 = doc():get_selection(true)
-        c2 = c2 + 1
-
+        local l1, c1, l2, c2 = get_selection(doc())
         local text = doc():get_text(l1, c1, l2, c2)
         doc():remove(l1, c1, l2, c2)
         doc():insert(l1, c1, text:lower())
@@ -872,9 +933,7 @@ local commands = {
         command.perform "root:close"
     end,
     ["vim:swap-case"] = function()
-        local l1, c1, l2, c2 = doc():get_selection(true)
-        c2 = c2 + 1
-
+        local l1, c1, l2, c2 = get_selection(doc())
         local text = doc():get_text(l1, c1, l2, c2)
         doc():remove(l1, c1, l2, c2)
 
@@ -895,12 +954,12 @@ local commands = {
 
         if mode == "normal" then
             doc():set_selection(l1, c1 + 1)
+        else
+            doc():set_selection(l1, c1)
         end
     end,
     ["vim:uppercase"] = function()
-        local l1, c1, l2, c2 = doc():get_selection(true)
-        c2 = c2 + 1
-
+        local l1, c1, l2, c2 = get_selection(doc())
         local text = doc():get_text(l1, c1, l2, c2)
         doc():remove(l1, c1, l2, c2)
         doc():insert(l1, c1, text:upper())
@@ -953,9 +1012,10 @@ keymap.add {
     ["normal+shift+;"] = "vim:exec",
     ["normal+a"] = "vim:insert-next-char",
     ["normal+shift+a"] = "vim:insert-end-of-line",
+    ["normal+c+c"] = "vim:change-line",
     ["normal+shift+c"] = "vim:change-end-of-line",
     ["normal+c+w"] = "vim:change-word",
-    ["normal+d+d"] = "doc:delete-lines",
+    ["normal+d+d"] = "vim:delete-lines",
     ["normal+d+w"] = "vim:delete-word",
     ["normal+shift+d"] = "vim:delete-end-of-line",
     ["normal+shift+h"] = "vim:move-to-visible-top",
@@ -1040,6 +1100,7 @@ keymap.add {
     ["visual+n"] = "vim:find-next",
     ["visual+shift+n"] = "vim:find-previous",
     ["visual+x"] = "vim:delete-selection",
+    ["visual+d"] = "vim:delete-selection",
     ["visual+c"] = "vim:change-selection",
     ["visual+y"] = "vim:copy",
     ["visual+r"] = "vim:replace",
