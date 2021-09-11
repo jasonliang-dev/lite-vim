@@ -439,7 +439,6 @@ function DocView:draw_line_body(idx, x, y)
     if line == idx and core.active_view == self and self.blink_timer < blink_period / 2 and system.window_has_focus() then
         local lh = self:get_line_height()
         local x1 = x + self:get_col_x_offset(line, col)
-        renderer.draw_rect(x1, y, style.caret_width, lh, style.caret)
 
         if mode == "normal" or mode == "visual" then
             local w = self:get_font():get_width " "
@@ -453,6 +452,8 @@ function DocView:draw_line_body(idx, x, y)
 
             local ch = self.doc:get_text(line, col, line, col + 1)
             renderer.draw_text(self:get_font(), ch, x1, y + self:get_line_text_y_offset(), style.background)
+        else
+            renderer.draw_rect(x1, y, style.caret_width, lh, style.caret)
         end
     end
 end
@@ -540,6 +541,9 @@ local vim_translate = {
         end
         return line, col
         ]]
+    end,
+    end_of_line = function(doc, line, col)
+        return line, #doc.lines[line] - 1
     end,
     other_delim = function(doc, line, col)
         local line2, col2 = line, col
@@ -903,6 +907,7 @@ local vim_translation_commands = {
     ["next-line"] = vim_translate.next_line,
     ["previous-word"] = vim_translate.previous_word,
     ["next-word"] = vim_translate.next_word,
+    ["end-of-line"] = vim_translate.end_of_line,
     ["other-delim"] = vim_translate.other_delim,
     ["visible-top"] = vim_translate.visible_top,
     ["visible-middle"] = vim_translate.visible_middle,
@@ -981,7 +986,7 @@ keymap.add {
     ["normal+w"] = "vim:move-to-next-word",
     ["normal+e"] = "doc:move-to-next-word-end",
     ["normal+0"] = "doc:move-to-start-of-line",
-    ["normal+shift+4"] = "doc:move-to-end-of-line",
+    ["normal+shift+4"] = "vim:move-to-end-of-line",
     ["normal+shift+5"] = "vim:move-to-other-delim",
     ["normal+/"] = "find-replace:find",
     ["normal+n"] = "vim:find-next",
@@ -1015,7 +1020,7 @@ keymap.add {
     ["visual+w"] = "doc:select-to-next-word-end",
     ["visual+e"] = "doc:select-to-next-word-end",
     ["visual+0"] = "doc:select-to-start-of-line",
-    ["visual+shift+4"] = "doc:select-to-end-of-line",
+    ["visual+shift+4"] = "vim:select-to-end-of-line",
     ["visual+shift+5"] = "vim:select-to-other-delim",
     ["visual+ctrl+d"] = "doc:select-to-next-page",
     ["visual+ctrl+u"] = "doc:select-to-previous-page",
