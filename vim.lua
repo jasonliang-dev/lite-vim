@@ -19,8 +19,6 @@ TOFIX LIST
 (low) autocomplete shows up when using find (f)
 (low) find next/prev always goes to visual mode even if there's no results
     - should find/repeat-find even go into visual mode?
-(low) ctrl+d, ctrl+u should be a half scroll
-(low) ctrl+d, ctrl+u shouldn't move the cursor
 (low) cursor shouldn't be able to sit on the newline
 
 --]]
@@ -90,12 +88,12 @@ local stroke_combo_tree = {
     insert = {}
 }
 
--- always a reference to an item in stroke_combo_tree
+-- should be a reference to an item in stroke_combo_tree
 local stroke_combo_loc = stroke_combo_tree[mode]
 -- key buffer
 local stroke_combo_string = ""
 
--- one of values in mini_mode_callbacks
+-- either nil, or a function in mini_mode_callbacks
 local mini_mode
 
 local mini_mode_callbacks = {
@@ -620,6 +618,16 @@ local vim_translate = {
         core.error "No matching item found"
         return line2, col2
     end,
+    page_down = function(doc, line, col, dv)
+        local delta = dv.size.y / 2
+        dv.scroll.to.y = dv.scroll.to.y + delta
+        return line + math.floor(delta / dv:get_line_height()), col
+    end,
+    page_up = function(doc, line, col, dv)
+        local delta = dv.size.y / 2
+        dv.scroll.to.y = dv.scroll.to.y - delta
+        return line - math.floor(delta / dv:get_line_height()), col
+    end,
     visible_top = function(doc, line, col, dv)
         local min = dv:get_visible_line_range()
         return min, 1
@@ -668,18 +676,19 @@ local commands = {
         command.perform "doc:cut"
     end,
     ["vim:copy"] = function()
-        normal_mode()
+        local l1, c1, l2, c2 = doc():get_selection(true)
 
-        local l1, c1, l2, c2 = doc():get_selection()
+        if visual_submode == "line" then
+            c1 = 1
+            c2 = #doc().lines[l2]
+        else
+            c2 = c2 + 1
+        end
+
         local text = doc():get_text(l1, c1, l2, c2)
         system.set_clipboard(text)
-
-        local cursor_at_selection_start = l2 < l1 or (l2 == l1 and c2 < c1)
-        if cursor_at_selection_start then
-            doc():set_selection(l2, c2)
-        else
-            doc():set_selection(l1, c1)
-        end
+        doc():set_selection(l1, c1)
+        normal_mode()
     end,
     ["vim:cut"] = function()
         local l1, c1, l2, c2 = doc():get_selection(true)
@@ -850,11 +859,11 @@ local commands = {
     ["vim:replace"] = function()
         mini_mode = mini_mode_callbacks.replace
     end,
-    ["vim:scroll-down"] = function()
+    ["vim:scroll-line-down"] = function()
         local lh = dv():get_line_height()
         dv().scroll.to.y = dv().scroll.to.y + lh
     end,
-    ["vim:scroll-up"] = function()
+    ["vim:scroll-line-up"] = function()
         local lh = dv():get_line_height()
         dv().scroll.to.y = math.max(0, dv().scroll.to.y - lh)
     end,
@@ -909,6 +918,8 @@ local vim_translation_commands = {
     ["next-word"] = vim_translate.next_word,
     ["end-of-line"] = vim_translate.end_of_line,
     ["other-delim"] = vim_translate.other_delim,
+    ["page-down"] = vim_translate.page_down,
+    ["page-up"] = vim_translate.page_up,
     ["visible-top"] = vim_translate.visible_top,
     ["visible-middle"] = vim_translate.visible_middle,
     ["visible-bottom"] = vim_translate.visible_bottom,
@@ -991,16 +1002,16 @@ keymap.add {
     ["normal+/"] = "find-replace:find",
     ["normal+n"] = "vim:find-next",
     ["normal+shift+n"] = "vim:find-previous",
-    ["normal+ctrl+d"] = "doc:move-to-next-page",
-    ["normal+ctrl+u"] = "doc:move-to-previous-page",
+    ["normal+ctrl+d"] = "vim:move-to-page-down",
+    ["normal+ctrl+u"] = "vim:move-to-page-up",
     ["normal+shift+g"] = "vim:move-to-line",
     ["normal+g+g"] = "vim:move-to-first-line",
     ["normal+f"] = "vim:find-char",
     ["normal+shift+f"] = "vim:find-char-backwards",
     ["normal+t"] = "vim:find-char-til",
     ["normal+shift+t"] = "vim:find-char-til-backwards",
-    ["normal+ctrl+e"] = "vim:scroll-down",
-    ["normal+ctrl+y"] = "vim:scroll-up",
+    ["normal+ctrl+e"] = "vim:scroll-line-down",
+    ["normal+ctrl+y"] = "vim:scroll-line-up",
     -- splits
     ["normal+ctrl+w+v"] = "root:split-right",
     ["normal+ctrl+w+s"] = "root:split-down",
@@ -1022,8 +1033,8 @@ keymap.add {
     ["visual+0"] = "doc:select-to-start-of-line",
     ["visual+shift+4"] = "vim:select-to-end-of-line",
     ["visual+shift+5"] = "vim:select-to-other-delim",
-    ["visual+ctrl+d"] = "doc:select-to-next-page",
-    ["visual+ctrl+u"] = "doc:select-to-previous-page",
+    ["visual+ctrl+d"] = "vim:select-to-page-down",
+    ["visual+ctrl+u"] = "vim:select-to-page-up",
     ["visual+shift+g"] = "vim:select-to-line",
     ["visual+g+g"] = "vim:select-to-first-line",
     ["visual+n"] = "vim:find-next",
