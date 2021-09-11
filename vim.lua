@@ -15,11 +15,12 @@ visual block
 repeat (.)
 macros (q, @)
 marks (``, m)
+delete other windows (ctrl+w o)
 
 TOFIX LIST
 (high) forward/back word doesn't share the same behaviour from vim
 (high) find next should only highlight, not go into visual mode
-(low) cursor should always stay in view (ctrl+e/y, mouse wheel, same file in different splits)
+(low) cursor should always stay in view (ctrl+e/y, mouse wheel)
 (low) autocomplete shows up when using find (f)
 (low) cursor shouldn't be able to sit on the newline
 (low) replace chars in visual mode is broken. newlines ignored
@@ -27,6 +28,8 @@ TOFIX LIST
 (low) pasting
 
 --]]
+--
+
 local core = require "core"
 local keymap = require "core.keymap"
 local command = require "core.command"
@@ -107,10 +110,6 @@ local stroke_combo_tree = {
 
 -- merge t2 into t1
 local function merge_trees(t1, t2)
-    if not t1 then
-        return
-    end
-
     for k, v in pairs(t2) do
         if t1[k] then
             merge_trees(t1[k], v)
@@ -139,6 +138,7 @@ local function inspect_tree(tree, indent)
     return str
 end
 --]]
+--
 
 -- should be a reference to an item in stroke_combo_tree
 local stroke_combo_loc = stroke_combo_tree[mode]
@@ -336,7 +336,10 @@ local function mouse_selection(doc, clicks, l1, c1, l2, c2)
     if clicks == 2 then
         l1, c1 = translate.start_of_word(doc, l1, c1)
         l2, c2 = translate.end_of_word(doc, l2, c2)
-        c2 = c2 - 1
+
+        if mode ~= "insert" then
+            c2 = c2 - 1
+        end
     elseif clicks == 3 then
         if l2 == #doc.lines and doc.lines[#doc.lines] ~= "\n" then
             doc:insert(math.huge, math.huge, "\n")
@@ -449,7 +452,7 @@ function DocView:draw_line_body(idx, x, y)
 
     -- draw selection
     local line1, col1, line2, col2 = self.doc:get_selection(true)
-    if idx >= line1 and idx <= line2 then
+    if core.active_view == self and idx >= line1 and idx <= line2 then
         local text = self.doc.lines[idx]
         if line1 ~= idx then
             col1 = 1
@@ -507,6 +510,20 @@ function DocView:draw_line_body(idx, x, y)
             renderer.draw_text(self:get_font(), ch, x1, y + self:get_line_text_y_offset(), style.background)
         else
             renderer.draw_rect(x1, y, style.caret_width, lh, style.caret)
+        end
+    end
+end
+
+local set_active_view = core.set_active_view
+function core.set_active_view(view)
+    set_active_view(view)
+
+    if view:is(DocView) and mode ~= "visual" then
+        local min, max = view:get_visible_line_range()
+        local line = view.doc:get_selection()
+
+        if line < min or line > max then
+            view.doc:set_selection(min + math.floor((max - min) / 2), 1)
         end
     end
 end
@@ -597,6 +614,16 @@ local vim_translate = {
     end,
     end_of_line = function(doc, line, col)
         return line, #doc.lines[line] - 1
+    end,
+    first_non_blank = function(doc, line, col)
+        local text = doc:get_text(line, 1, line + 1, 1)
+
+        local i = text:find("%S")
+        if i then
+            return line, i
+        end
+
+        return line, math.huge
     end,
     other_delim = function(doc, line, col)
         local line2, col2 = line, col
@@ -703,7 +730,7 @@ local commands = {
         -- print(line1, col1, line2, col2)
     end,
     ["vim:use-user-stroke-combos"] = function()
-       merge_trees(stroke_combo_tree, config.vim_stroke_combos or {})
+        merge_trees(stroke_combo_tree, config.vim_stroke_combos or {})
     end,
     ["vim:insert-mode"] = insert_mode,
     ["vim:normal-mode"] = function()
@@ -983,7 +1010,8 @@ local vim_translation_commands = {
     ["visible-middle"] = vim_translate.visible_middle,
     ["visible-bottom"] = vim_translate.visible_bottom,
     ["line"] = vim_translate.goto_line,
-    ["first-line"] = vim_translate.goto_first_line
+    ["first-line"] = vim_translate.goto_first_line,
+    ["first-non-blank"] = vim_translate.first_non_blank
 }
 
 for name, fn in pairs(vim_translation_commands) do
@@ -1009,6 +1037,7 @@ keymap.add {
     -- insert
     ["escape"] = "vim:normal-mode",
     -- normal
+    ["normal+escape"] = "command:escape",
     ["normal+shift+;"] = "vim:exec",
     ["normal+a"] = "vim:insert-next-char",
     ["normal+shift+a"] = "vim:insert-end-of-line",
@@ -1059,6 +1088,7 @@ keymap.add {
     ["normal+0"] = "doc:move-to-start-of-line",
     ["normal+shift+4"] = "vim:move-to-end-of-line",
     ["normal+shift+5"] = "vim:move-to-other-delim",
+    ["normal+shift+6"] = "vim:move-to-first-non-blank",
     ["normal+/"] = "find-replace:find",
     ["normal+n"] = "vim:find-next",
     ["normal+shift+n"] = "vim:find-previous",
@@ -1093,6 +1123,7 @@ keymap.add {
     ["visual+0"] = "doc:select-to-start-of-line",
     ["visual+shift+4"] = "vim:select-to-end-of-line",
     ["visual+shift+5"] = "vim:select-to-other-delim",
+    ["visual+shift+6"] = "vim:select-to-first-non-blank",
     ["visual+ctrl+d"] = "vim:select-to-page-down",
     ["visual+ctrl+u"] = "vim:select-to-page-up",
     ["visual+shift+g"] = "vim:select-to-line",
