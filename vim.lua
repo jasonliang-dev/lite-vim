@@ -15,7 +15,6 @@ marks (``, m)
 
 TOFIX LIST
 (high) forward/back word doesn't share the same behaviour from vim
-(low) visual line doesn't delete trailing newline
 (low) cursor should always stay in view (ctrl+e/y, mouse wheel, same file in different splits)
 (low) autocomplete shows up when using find (f)
 (low) find next/prev always goes to visual mode even if there's no results
@@ -35,10 +34,6 @@ local style = require "core.style"
 local translate = require "core.doc.translate"
 local common = require "core.common"
 local config = require "core.config"
-
-local has_autoindent =
-    system.get_file_info "data/plugins/autoindent.lua" or system.get_file_info "data/user/plugins/autoindent.lua"
-local has_macro = system.get_file_info "data/plugins/macro.lua" or system.get_file_info "data/user/plugins/macro.lua"
 
 local function dv()
     return core.active_view
@@ -220,7 +215,7 @@ function keymap.on_key_pressed(k)
     local stroke = key_to_stroke(k)
     -- print(mode .. stroke_combo_string .. "+" .. stroke)
 
-    -- check for normal+0, and any command with numbers
+    -- check for normal+0, and any other command with numbers
     if not (n_repeat ~= 0 and string.find("0123456789", stroke, 1, true)) then
         local commands
         if mode == "insert" then
@@ -722,6 +717,8 @@ local commands = {
     end,
     ["vim:delete-selection"] = function()
         command.perform "vim:cut"
+        local line = doc():get_selection()
+        doc():remove(line, 1, line + 1, 1)
         normal_mode()
     end,
     ["vim:delete-word"] = function()
@@ -830,12 +827,7 @@ local commands = {
     end,
     ["vim:insert-newline-below"] = function()
         insert_mode()
-
-        if has_autoindent then
-            command.perform "autoindent:newline-below"
-        else
-            command.perform "doc:newline-below"
-        end
+        command.perform "doc:newline-below"
     end,
     ["vim:join-lines"] = function()
         normal_mode()
