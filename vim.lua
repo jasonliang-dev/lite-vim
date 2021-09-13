@@ -8,7 +8,6 @@ TODO LIST
     - diw, cit
 (IN PROGRESS) commands
     - :q!
-    - :nohl
     - :s/foo/bar/g
 (IN PROGRESS) number + command (123g, 50j, d3w, y10l)
 visual block
@@ -144,7 +143,8 @@ local exec_commands = {
     w = "doc:save",
     q = "root:close",
     wq = "vim:save-and-close",
-    x = "vim:save-and-close"
+    x = "vim:save-and-close",
+    nohl = "vim:nohl"
 }
 
 local previous_find_command = ""
@@ -1053,6 +1053,9 @@ local commands = {
         doc():insert(l1, c1, text:lower())
         doc():set_selection(l1, c1)
         normal_mode()
+    end,
+    ["vim:nohl"] = function()
+        should_highlight = false
     end,
     ["vim:replace"] = function()
         mini_mode = mini_mode_callbacks.replace
