@@ -9,6 +9,7 @@ TODO LIST
 (IN PROGRESS) commands
     - :q!
     - :s/foo/bar/g
+    - :sort
 (IN PROGRESS) number + command (123g, 50j, d3w, y10l)
 visual block
 repeat (.)
@@ -17,13 +18,12 @@ marks (``, m)
 delete other windows (ctrl+w o)
 
 TOFIX LIST
-(high) forward/back word doesn't share the same behaviour from vim
 (high) pasting
+    - visual line submode ignored when pasting
+(high) replace chars in visual mode is broken. newlines ignored
 (low) cursor should always stay in view (ctrl+e/y, mouse wheel)
 (low) autocomplete shows up when using find (f)
 (low) cursor shouldn't be able to sit on the newline
-(low) replace chars in visual mode is broken. newlines ignored
-(low) visual line submode ignored when pasting
 
 --]]
 --
@@ -542,13 +542,13 @@ end
 
 local blink_period = 0.8
 
-local function draw_box(x, y, w, h, color)
+local function draw_box(x, y, w, h, pad, color)
     local r = renderer.draw_rect
-    local s = math.ceil(SCALE)
-    r(x, y, w, s, color)
-    r(x, y + h - s, w, s, color)
-    r(x, y + s, s, h - s * 2, color)
-    r(x + w - s, y + s, s, h - s * 2, color)
+    pad = pad * math.ceil(SCALE)
+    r(x, y, w, pad, color)
+    r(x, y + h - pad, w, pad, color)
+    r(x, y + pad, pad, h - pad * 2, color)
+    r(x + w - pad, y + pad, pad, h - pad * 2, color)
 end
 
 function DocView:draw_line_body(idx, x, y)
@@ -603,7 +603,7 @@ function DocView:draw_line_body(idx, x, y)
         while start_col do
             local x1 = x + self:get_col_x_offset(idx, start_col)
             local x2 = x + self:get_col_x_offset(idx, end_col + 1)
-            draw_box(x1, y, x2 - x1, lh, style.text)
+            draw_box(x1, y, x2 - x1, lh, 2, style.text)
 
             last_col = end_col + 1
             start_col, end_col = text:find(previous_find_command, last_col, true)
@@ -650,115 +650,225 @@ function core.set_active_view(view)
     end
 end
 
-local function is_non_word(char)
-    return config.non_word_chars:find(char, nil, true)
+local function char_type(char)
+    if char:find "%s" then
+        return "whitespace"
+    elseif char:find "%w" then
+        return "word"
+    else
+        return "other"
+    end
 end
 
-local vim_translate = {
-    goto_first_line = function(doc, line, col)
-        if n_repeat ~= 0 then
-            local n = n_repeat
-            n_repeat = 0
-            return n, 1
-        else
-            return 1, 1
-        end
-    end,
-    goto_line = function(doc, line, col)
-        if n_repeat ~= 0 then
-            local n = n_repeat
-            n_repeat = 0
-            return n, 1
-        else
-            return #doc.lines, #doc.lines[#doc.lines]
-        end
-    end,
-    previous_char = function(doc, line, col)
-        local line2
-        local col2
+local vim_translate = {}
 
-        repeat
-            line2, col2 = doc:position_offset(line, col, -1)
-        until not common.is_utf8_cont(doc:get_char(line2, col2))
+function vim_translate.goto_first_line(doc, line, col)
+    if n_repeat ~= 0 then
+        local n = n_repeat
+        n_repeat = 0
+        return n, 1
+    else
+        return 1, 1
+    end
+end
 
-        if line ~= line2 then
-            return line, col
-        else
-            return line2, col2
-        end
-    end,
-    next_char = function(doc, line, col)
-        local line2
-        local col2
+function vim_translate.goto_line(doc, line, col)
+    if n_repeat ~= 0 then
+        local n = n_repeat
+        n_repeat = 0
+        return n, 1
+    else
+        return translate.end_of_doc(doc, line, col)
+    end
+end
 
-        repeat
-            line2, col2 = doc:position_offset(line, col, 1)
-        until not common.is_utf8_cont(doc:get_char(line2, col2))
+function vim_translate.previous_char(doc, line, col)
+    local line2
+    local col2
 
-        if line ~= line2 then
-            return line, col
-        else
-            return line2, col2
-        end
-    end,
-    -- previous_line = function(doc, line, col, dv)
-    --    return DocView.translate.previous_line(doc, line, col, dv)
-    -- end,
-    -- next_line = function(doc, line, col, dv)
-    --    return DocView.translate.previous_line(doc, line, col, dv)
-    -- end,
-    previous_word = function(doc, line, col)
-        return translate.previous_word_start(doc, line, col)
-    end,
-    next_word = function(doc, line, col)
-        return translate.next_word_end(doc, line, col)
-        --[[
-        local prev
-        local end_line, end_col = translate.end_of_doc(doc, line, col)
-        while line < end_line or col < end_col do
-            local char = doc:get_char(line, col)
-            if prev and is_non_word(prev) and not is_non_word(char) then
-                break
-            end
-            line, col = doc:position_offset(line, col, 1)
-            prev = char
-        end
+    repeat
+        line2, col2 = doc:position_offset(line, col, -1)
+    until not common.is_utf8_cont(doc:get_char(line2, col2))
+
+    if line ~= line2 then
         return line, col
-        ]]
-    end,
-    end_of_line = function(doc, line, col)
-        return line, #doc.lines[line] - 1
-    end,
-    first_non_blank = function(doc, line, col)
-        local text = doc:get_text(line, 1, line + 1, 1)
+    else
+        return line2, col2
+    end
+end
 
-        local i = text:find("%S")
-        if i then
-            return line, i
+function vim_translate.next_char(doc, line, col)
+    local line2
+    local col2
+
+    repeat
+        line2, col2 = doc:position_offset(line, col, 1)
+    until not common.is_utf8_cont(doc:get_char(line2, col2))
+
+    if line ~= line2 then
+        return line, col
+    else
+        return line2, col2
+    end
+end
+
+function vim_translate.start_of_word(doc, line, col)
+    local t = char_type(doc:get_char(line, col))
+    if t == "whitespace" then
+        core.error "Unexpected whitespace"
+        return line, col
+    end
+
+    while true do
+        local line2, col2 = doc:position_offset(line, col, -1)
+        local char = doc:get_char(line2, col2)
+        if char_type(char) ~= t then
+            break
+        end
+        line, col = line2, col2
+    end
+
+    return line, col
+end
+
+function vim_translate.end_of_word(doc, line, col)
+    local t = char_type(doc:get_char(line, col))
+    if t == "whitespace" then
+        core.error "Unexpected whitespace"
+        return line, col
+    end
+
+    while true do
+        local line2, col2 = doc:position_offset(line, col, 1)
+        local char = doc:get_char(line2, col2)
+        if char_type(char) ~= t then
+            break
+        end
+        line, col = line2, col2
+    end
+
+    return line, col
+end
+
+function vim_translate.previous_word(doc, line, col)
+    while line > 1 or col > 1 do
+        local char = doc:get_char(line, col)
+        local prev_line, prev_col = doc:position_offset(line, col, -1)
+        local prev = doc:get_char(prev_line, prev_col)
+
+        if char_type(prev) ~= "whitespace" then
+            return vim_translate.start_of_word(doc, prev_line, prev_col)
         end
 
-        return line, math.huge
-    end,
-    other_delim = function(doc, line, col)
-        local line2, col2 = line, col
-        local delim = doc:get_text(line, col, line, col + 1)
+        line, col = prev_line, prev_col
+    end
 
-        local forward = {
-            ["("] = ")",
-            ["["] = "]",
-            ["{"] = "}",
-            ["<"] = ">"
+    return line, col
+end
+
+function vim_translate.next_word(doc, line, col)
+    local end_line, end_col = translate.end_of_doc(doc, line, col)
+
+    while line < end_line or col < end_col do
+        local char = doc:get_char(line, col)
+        local next_line, next_col = doc:position_offset(line, col, 1)
+        local next = doc:get_char(next_line, next_col)
+
+        if char_type(next) ~= "whitespace" and char_type(char) ~= char_type(next) then
+            return next_line, next_col
+        end
+
+        line, col = next_line, next_col
+    end
+
+    return line, col
+end
+
+function vim_translate.next_word_end(doc, line, col)
+    local end_line, end_col = translate.end_of_doc(doc, line, col)
+
+    while line < end_line or col < end_col do
+        local char = doc:get_char(line, col)
+        local next_line, next_col = doc:position_offset(line, col, 1)
+        local next = doc:get_char(next_line, next_col)
+
+        if char_type(next) ~= "whitespace" then
+            return vim_translate.end_of_word(doc, next_line, next_col)
+        end
+
+        line, col = next_line, next_col
+    end
+
+    return line, col
+end
+
+function vim_translate.end_of_line(doc, line, col)
+    return line, #doc.lines[line] - 1
+end
+
+function vim_translate.first_non_blank(doc, line, col)
+    local text = doc:get_text(line, 1, line + 1, 1)
+
+    local i = text:find("%S")
+    if i then
+        return line, i
+    end
+
+    return line, math.huge
+end
+
+function vim_translate.other_delim(doc, line, col)
+    local line2, col2 = line, col
+    local delim = doc:get_text(line, col, line, col + 1)
+
+    local forward = {
+        ["("] = ")",
+        ["["] = "]",
+        ["{"] = "}",
+        ["<"] = ">"
+    }
+
+    local other = forward[delim]
+    if other then
+        local start = col + 1
+        local count = 1
+
+        while line <= #doc.lines do
+            local text = doc:get_text(line, 1, line, math.huge)
+
+            for i = start, #text do
+                local c = text:sub(i, i)
+
+                if c == delim then
+                    count = count + 1
+                elseif c == other then
+                    count = count - 1
+                end
+
+                if count == 0 then
+                    return line, i
+                end
+            end
+
+            start = 1
+            line = line + 1
+        end
+    else
+        local backward = {
+            [")"] = "(",
+            ["]"] = "[",
+            ["}"] = "{",
+            [">"] = "<"
         }
 
-        local other = forward[delim]
+        other = backward[delim]
         if other then
-            local start = col + 1
+            local start = col - 1
             local count = 1
 
-            while line <= #doc.lines do
-                local text = doc:get_text(line, 1, line, math.huge)
-
-                for i = start, #text do
+            local text = doc:get_text(line, 1, line, math.huge)
+            while line > 0 do
+                for i = start, 1, -1 do
                     local c = text:sub(i, i)
 
                     if c == delim then
@@ -772,71 +882,43 @@ local vim_translate = {
                     end
                 end
 
-                start = 1
-                line = line + 1
-            end
-        else
-            local backward = {
-                [")"] = "(",
-                ["]"] = "[",
-                ["}"] = "{",
-                [">"] = "<"
-            }
-
-            other = backward[delim]
-            if other then
-                local start = col - 1
-                local count = 1
-
-                local text = doc:get_text(line, 1, line, math.huge)
-                while line > 0 do
-                    for i = start, 1, -1 do
-                        local c = text:sub(i, i)
-
-                        if c == delim then
-                            count = count + 1
-                        elseif c == other then
-                            count = count - 1
-                        end
-
-                        if count == 0 then
-                            return line, i
-                        end
-                    end
-
-                    line = line - 1
-                    text = doc:get_text(line, 1, line, math.huge)
-                    start = #text
-                end
+                line = line - 1
+                text = doc:get_text(line, 1, line, math.huge)
+                start = #text
             end
         end
-
-        -- core.error "No matching item found"
-        return line2, col2
-    end,
-    page_down = function(doc, line, col, dv)
-        local delta = dv.size.y / 2
-        dv.scroll.to.y = dv.scroll.to.y + delta
-        return line + math.floor(delta / dv:get_line_height()), col
-    end,
-    page_up = function(doc, line, col, dv)
-        local delta = dv.size.y / 2
-        dv.scroll.to.y = dv.scroll.to.y - delta
-        return line - math.floor(delta / dv:get_line_height()), col
-    end,
-    visible_top = function(doc, line, col, dv)
-        local min = dv:get_visible_line_range()
-        return min, 1
-    end,
-    visible_middle = function(doc, line, col, dv)
-        local min, max = dv:get_visible_line_range()
-        return math.floor((max + min) / 2), 1
-    end,
-    visible_bottom = function(doc, line, col, dv)
-        local _, max = dv:get_visible_line_range()
-        return max, 1
     end
-}
+
+    -- core.error "No matching item found"
+    return line2, col2
+end
+
+function vim_translate.page_down(doc, line, col, dv)
+    local delta = dv.size.y / 2
+    dv.scroll.to.y = dv.scroll.to.y + delta
+    return line + math.floor(delta / dv:get_line_height()), col
+end
+
+function vim_translate.page_up(doc, line, col, dv)
+    local delta = dv.size.y / 2
+    dv.scroll.to.y = dv.scroll.to.y - delta
+    return line - math.floor(delta / dv:get_line_height()), col
+end
+
+function vim_translate.visible_top(doc, line, col, dv)
+    local min = dv:get_visible_line_range()
+    return min, 1
+end
+
+function vim_translate.visible_middle(doc, line, col, dv)
+    local min, max = dv:get_visible_line_range()
+    return math.floor((max + min) / 2), 1
+end
+
+function vim_translate.visible_bottom(doc, line, col, dv)
+    local _, max = dv:get_visible_line_range()
+    return max, 1
+end
 
 local commands = {
     ["vim:debug"] = function()
@@ -1158,10 +1240,9 @@ local commands = {
 local vim_translation_commands = {
     ["previous-char"] = vim_translate.previous_char,
     ["next-char"] = vim_translate.next_char,
-    ["previous-line"] = vim_translate.previous_line,
-    ["next-line"] = vim_translate.next_line,
     ["previous-word"] = vim_translate.previous_word,
     ["next-word"] = vim_translate.next_word,
+    ["next-word-end"] = vim_translate.next_word_end,
     ["end-of-line"] = vim_translate.end_of_line,
     ["other-delim"] = vim_translate.other_delim,
     ["page-down"] = vim_translate.page_down,
@@ -1186,6 +1267,10 @@ for name, fn in pairs(vim_translation_commands) do
     commands["vim:delete-to-" .. name] = function()
         doc():delete_to(fn, dv())
     end
+    commands["vim:change-to-" .. name] = function()
+        doc():delete_to(fn, dv())
+        insert_mode()
+    end
 end
 
 command.add(nil, commands)
@@ -1203,9 +1288,9 @@ keymap.add {
     ["normal+shift+a"] = "vim:insert-end-of-line",
     ["normal+c+c"] = "vim:change-line",
     ["normal+shift+c"] = "vim:change-end-of-line",
-    ["normal+c+w"] = "vim:change-word",
+    ["normal+c+w"] = "vim:change-to-next-word",
     ["normal+d+d"] = "vim:delete-lines",
-    ["normal+d+w"] = "vim:delete-word",
+    ["normal+d+w"] = "vim:delete-to-next-word",
     ["normal+shift+d"] = "vim:delete-end-of-line",
     ["normal+shift+h"] = "vim:move-to-visible-top",
     ["normal+shift+m"] = "vim:move-to-visible-middle",
@@ -1244,7 +1329,7 @@ keymap.add {
     ["normal+l"] = "vim:move-to-next-char",
     ["normal+b"] = "vim:move-to-previous-word",
     ["normal+w"] = "vim:move-to-next-word",
-    ["normal+e"] = "doc:move-to-next-word-end",
+    ["normal+e"] = "vim:move-to-next-word-end",
     ["normal+0"] = "doc:move-to-start-of-line",
     ["normal+shift+4"] = "vim:move-to-end-of-line",
     ["normal+shift+5"] = "vim:move-to-other-delim",
@@ -1277,9 +1362,9 @@ keymap.add {
     ["visual+j"] = "doc:select-to-next-line",
     ["visual+k"] = "doc:select-to-previous-line",
     ["visual+l"] = "vim:select-to-next-char",
-    ["visual+b"] = "doc:select-to-previous-word-start",
-    ["visual+w"] = "doc:select-to-next-word-end",
-    ["visual+e"] = "doc:select-to-next-word-end",
+    ["visual+b"] = "vim:select-to-previous-word",
+    ["visual+w"] = "vim:select-to-next-word",
+    ["visual+e"] = "vim:select-to-next-word-end",
     ["visual+0"] = "doc:select-to-start-of-line",
     ["visual+shift+4"] = "vim:select-to-end-of-line",
     ["visual+shift+5"] = "vim:select-to-other-delim",
