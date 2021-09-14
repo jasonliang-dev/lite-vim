@@ -962,7 +962,10 @@ local commands = {
     end,
     ["vim:insert-mode"] = insert_mode,
     ["vim:normal-mode"] = function()
-        doc():move_to(vim_translate.previous_char, dv())
+        if doc() then
+            doc():move_to(vim_translate.previous_char, dv())
+        end
+
         command.perform "command:escape"
         normal_mode()
     end,
@@ -978,6 +981,35 @@ local commands = {
         command.perform "doc:select-none"
         normal_mode()
     end,
+    ["vim:exec"] = function()
+        core.command_view:set_text(previous_exec_command, true)
+        core.command_view:enter(
+            "vim",
+            function(text)
+                previous_exec_command = text
+                local cmd = exec_commands[text]
+                if cmd then
+                    command.perform(cmd)
+                else
+                    core.error("Unknown command ':%s'", text)
+                end
+            end
+        )
+    end,
+    ["vim:find-command"] = function()
+        command.perform "core:find-command"
+        insert_mode()
+    end,
+    ["vim:find-file"] = function()
+        command.perform "core:find-file"
+        insert_mode()
+    end,
+    ["vim:nohl"] = function()
+        should_highlight = false
+    end,
+}
+
+local doc_commands = {
     ["vim:change-end-of-line"] = function()
         doc():select_to(translate.end_of_line, dv())
         command.perform "doc:cut"
@@ -1045,25 +1077,6 @@ local commands = {
 
         normal_mode()
     end,
-    ["vim:exec"] = function()
-        core.command_view:set_text(previous_exec_command, true)
-        core.command_view:enter(
-            "vim",
-            function(text)
-                previous_exec_command = text
-                local cmd = exec_commands[text]
-                if cmd then
-                    command.perform(cmd)
-                else
-                    core.error("Unknown command ':%s'", text)
-                end
-            end
-        )
-    end,
-    ["vim:find-command"] = function()
-        command.perform "core:find-command"
-        insert_mode()
-    end,
     ["vim:find-char"] = function()
         mini_mode = mini_mode_callbacks.find
     end,
@@ -1075,10 +1088,6 @@ local commands = {
     end,
     ["vim:find-char-til-backwards"] = function()
         mini_mode = mini_mode_callbacks.find_til_backwards
-    end,
-    ["vim:find-file"] = function()
-        command.perform "core:find-file"
-        insert_mode()
     end,
     ["vim:indent-left"] = function()
         local l1, c1, l2 = doc():get_selection(true)
@@ -1153,9 +1162,6 @@ local commands = {
         doc():insert(l1, c1, text:lower())
         doc():set_selection(l1, c1)
         normal_mode()
-    end,
-    ["vim:nohl"] = function()
-        should_highlight = false
     end,
     ["vim:replace"] = function()
         mini_mode = mini_mode_callbacks.replace
@@ -1288,24 +1294,25 @@ local vim_translation_commands = {
 }
 
 for name, fn in pairs(vim_translation_commands) do
-    commands["vim:move-to-" .. name] = function()
+    doc_commands["vim:move-to-" .. name] = function()
         doc():move_to(fn, dv())
     end
 
-    commands["vim:select-to-" .. name] = function()
+    doc_commands["vim:select-to-" .. name] = function()
         doc():select_to(fn, dv())
     end
 
-    commands["vim:delete-to-" .. name] = function()
+    doc_commands["vim:delete-to-" .. name] = function()
         doc():delete_to(fn, dv())
     end
-    commands["vim:change-to-" .. name] = function()
+    doc_commands["vim:change-to-" .. name] = function()
         doc():delete_to(fn, dv())
         insert_mode()
     end
 end
 
 command.add(nil, commands)
+command.add("core.docview", doc_commands)
 
 keymap.add {
     ["shift+f3"] = "vim:debug",
@@ -1423,6 +1430,8 @@ keymap.add {
     ["visual+shift+h"] = "vim:select-to-visible-top",
     ["visual+shift+m"] = "vim:select-to-visible-middle",
     ["visual+shift+l"] = "vim:select-to-visible-bottom",
+    ["visual+ctrl+e"] = "vim:scroll-line-down",
+    ["visual+ctrl+y"] = "vim:scroll-line-up",
     ["visual+shift+v"] = "vim:visual-line-mode"
 }
 
