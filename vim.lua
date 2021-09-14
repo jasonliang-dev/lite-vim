@@ -602,7 +602,11 @@ function DocView:draw_line_body(idx, x, y)
     -- draw search results
     if should_highlight and not self:is(CommandView) then
         local lh = self:get_line_height()
-        local text = self.doc.lines[idx]:lower()
+
+        local text = self.doc.lines[idx]
+        if previous_find_command == previous_find_command:lower() then
+            text = text:lower()
+        end
 
         local last_col = 1
         local start_col, end_col = text:find(previous_find_command, last_col, true)
@@ -1195,7 +1199,14 @@ local commands = {
         if previous_find_command ~= "" then
             should_highlight = true
             local line, col = doc():get_selection()
-            local l1, c1 = vim_search.find(doc(), line, col + 1, previous_find_command, {wrap = true, no_case = true})
+            local l1, c1 =
+                vim_search.find(
+                doc(),
+                line,
+                col + 1,
+                previous_find_command,
+                {wrap = true, no_case = previous_find_command == previous_find_command:lower()}
+            )
             if l1 then
                 doc():set_selection(l1, c1)
             end
@@ -1208,7 +1219,13 @@ local commands = {
             should_highlight = true
             local line, col = doc():get_selection()
             local l1, c1 =
-                vim_search.find_backwards(doc(), line, col - 1, previous_find_command, {wrap = true, no_case = true})
+                vim_search.find_backwards(
+                doc(),
+                line,
+                col - 1,
+                previous_find_command,
+                {wrap = true, no_case = previous_find_command == previous_find_command:lower()}
+            )
             if l1 then
                 doc():set_selection(l1, c1)
             end
