@@ -16,11 +16,11 @@ repeat (.)
 macros (q, @)
 marks (``, m)
 delete other windows (ctrl+w o)
+replace mode (shift+r)
 
 TOFIX LIST
 (high) pasting
     - visual line submode ignored when pasting
-(high) replace chars in visual mode is broken. newlines ignored
 (low) cursor should always stay in view (ctrl+e/y, mouse wheel)
 (low) autocomplete shows up when using find (f)
 (low) cursor shouldn't be able to sit on the newline
@@ -33,6 +33,7 @@ local keymap = require "core.keymap"
 local command = require "core.command"
 local CommandView = require "core.commandview"
 local DocView = require "core.docview"
+local StatusView = require "core.statusview"
 local Doc = require "core.doc"
 local style = require "core.style"
 local translate = require "core.doc.translate"
@@ -224,7 +225,13 @@ local mini_mode_callbacks = {
 
         local text = doc():get_text(l1, c1, l2, c2)
         doc():remove(l1, c1, l2, c2)
-        doc():insert(l1, c1, string.rep(input_text, #text))
+        local sub = text:gsub("[^\n]", input_text)
+        doc():insert(l1, c1, sub)
+
+        if mode == "visual" then
+            doc():set_selection(l1, c1)
+            normal_mode()
+        end
     end
 }
 
@@ -636,6 +643,27 @@ function DocView:draw_line_body(idx, x, y)
     end
 end
 
+local status_view_get_items = StatusView.get_items
+function StatusView:get_items()
+    local left, right = status_view_get_items(self)
+
+    if mode ~= "normal" then
+        if next(left) then
+            table.insert(left, style.dim)
+            table.insert(left, self.separator)
+        end
+
+        table.insert(left, style.accent or style.text)
+        if visual_submode then
+            table.insert(left, string.format("-- %s %s --", mode, visual_submode))
+        else
+            table.insert(left, string.format("-- %s --", mode))
+        end
+    end
+
+    return left, right
+end
+
 local set_active_view = core.set_active_view
 function core.set_active_view(view)
     set_active_view(view)
@@ -985,16 +1013,6 @@ local commands = {
         local text = doc():get_text(line, 1, line + 1, 1)
         system.set_clipboard(text)
     end,
-    ["vim:copy-n-words"] = function()
-        local line, col = doc():get_selection()
-
-        for i = 1, n_repeat do
-            doc():select_to(translate.next_word_end, dv())
-        end
-
-        command.perform "doc:copy"
-        doc():set_selection(line, col)
-    end,
     ["vim:delete-char"] = function()
         command.perform "vim:cut"
     end,
@@ -1022,10 +1040,6 @@ local commands = {
         end
 
         normal_mode()
-    end,
-    ["vim:delete-word"] = function()
-        doc():select_to(translate.next_word_end, dv())
-        command.perform "doc:cut"
     end,
     ["vim:exec"] = function()
         core.command_view:set_text(previous_exec_command, true)
@@ -1163,7 +1177,8 @@ local commands = {
             function(text)
                 previous_find_command = text
                 should_highlight = true
-                local l1, c1 = vim_search.find(doc(), line, col + 1, text, {wrap = true, no_case = true})
+                local l1, c1 =
+                    vim_search.find(doc(), line, col + 1, text, {wrap = true, no_case = text == text:lower()})
                 if l1 then
                     doc():set_selection(l1, c1)
                 end
@@ -1310,7 +1325,6 @@ keymap.add {
     ["normal+shift+v"] = "vim:visual-line-mode",
     ["normal+x"] = "vim:delete-char",
     ["normal+y+y"] = "vim:copy-line",
-    ["normal+y+#+w"] = "vim:copy-n-words",
     ["normal+u"] = "doc:undo",
     ["normal+ctrl+r"] = "doc:redo",
     ["normal+r"] = "vim:replace",
