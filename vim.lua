@@ -4,12 +4,10 @@ vim.lua - see end of file for license information
 
 TODO LIST
 (IN PROGRESS) combos (dw, yy, ...)
-    - c prefix, (cw)
     - diw, cit
 (IN PROGRESS) commands
     - :q!
     - :s/foo/bar/g
-    - :sort
 (IN PROGRESS) number + command (123g, 50j, d3w, y10l)
 visual block
 repeat (.)
@@ -19,8 +17,10 @@ delete other windows (ctrl+w o)
 replace mode (shift+r)
 
 TOFIX LIST
+(high) change word (cw) isn't the same as vim
 (high) pasting
     - visual line submode ignored when pasting
+(high) forward/back word skips newlines
 (low) cursor should always stay in view (ctrl+e/y, mouse wheel)
 (low) autocomplete shows up when using find (f)
 (low) cursor shouldn't be able to sit on the newline
@@ -52,6 +52,7 @@ end
 local mode = "normal"
 -- one of: nil, "line", "block"
 local visual_submode
+local previous_visual_submode
 
 local function normal_mode()
     mode = "normal"
@@ -81,7 +82,7 @@ local function get_selection(doc)
     return l1, c1, l2, c2
 end
 
--- used for number + command (50j to down down 50 lines, y3w to copy 3 words, etc)
+-- used for number + command (50j to go down 50 lines, y3w to copy 3 words, etc)
 local n_repeat = 0
 
 local stroke_combo_tree = {
@@ -145,10 +146,12 @@ local exec_commands = {
     q = "root:close",
     wq = "vim:save-and-close",
     x = "vim:save-and-close",
-    nohl = "vim:nohl"
+    nohl = "vim:nohl",
+    sort = "vim:sort-lines"
 }
 
-local previous_find_command = ""
+local previous_search_command = ""
+local search_text = ""
 local should_highlight = false
 
 -- should be a reference to an item in stroke_combo_tree
@@ -465,6 +468,7 @@ end
 
 local command_view_enter = CommandView.enter
 function CommandView:enter(text, submit, suggest, cancel)
+    previous_visual_submode = visual_submode
     insert_mode()
     command_view_enter(self, text, submit, suggest, cancel)
 end
@@ -472,7 +476,7 @@ end
 local command_view_exit = CommandView.exit
 function CommandView:exit(submitted, inexplicit)
     if core.last_active_view.doc and core.last_active_view.doc:has_selection() then
-        visual_mode()
+        visual_mode(previous_visual_submode)
     else
         normal_mode()
     end
@@ -604,12 +608,12 @@ function DocView:draw_line_body(idx, x, y)
         local lh = self:get_line_height()
 
         local text = self.doc.lines[idx]
-        if previous_find_command == previous_find_command:lower() then
+        if search_text == search_text:lower() then
             text = text:lower()
         end
 
         local last_col = 1
-        local start_col, end_col = text:find(previous_find_command, last_col, true)
+        local start_col, end_col = text:find(search_text, last_col, true)
 
         while start_col do
             local x1 = x + self:get_col_x_offset(idx, start_col)
@@ -617,7 +621,7 @@ function DocView:draw_line_body(idx, x, y)
             draw_box(x1, y, x2 - x1, lh, 2, style.text)
 
             last_col = end_col + 1
-            start_col, end_col = text:find(previous_find_command, last_col, true)
+            start_col, end_col = text:find(search_text, last_col, true)
         end
     end
 
@@ -841,7 +845,7 @@ end
 function vim_translate.first_non_blank(doc, line, col)
     local text = doc:get_text(line, 1, line + 1, 1)
 
-    local i = text:find("%S")
+    local i = text:find "%S"
     if i then
         return line, i
     end
@@ -956,18 +960,23 @@ local commands = {
     ["vim:debug"] = function()
         -- local line1, col1, line2, col2 = doc():get_selection(true)
         -- print(line1, col1, line2, col2)
+        print("previous_search_command", previous_search_command)
+        print("search_text", search_text)
     end,
     ["vim:use-user-stroke-combos"] = function()
         merge_trees(stroke_combo_tree, config.vim_stroke_combos or {})
     end,
     ["vim:insert-mode"] = insert_mode,
-    ["vim:normal-mode"] = function()
-        if doc() then
-            doc():move_to(vim_translate.previous_char, dv())
-        end
+    ["vim:escape"] = function()
+        if core.active_view:is(CommandView) then
+            command.perform "command:escape"
+        else
+            normal_mode()
 
-        command.perform "command:escape"
-        normal_mode()
+            if doc() then
+                doc():move_to(vim_translate.previous_char, dv())
+            end
+        end
     end,
     ["vim:force-normal-mode"] = function()
         normal_mode()
@@ -975,7 +984,7 @@ local commands = {
     end,
     ["vim:visual-mode"] = visual_mode,
     ["vim:visual-line-mode"] = function()
-        visual_mode("line")
+        visual_mode "line"
     end,
     ["vim:exit-visual-mode"] = function()
         command.perform "doc:select-none"
@@ -1006,7 +1015,7 @@ local commands = {
     end,
     ["vim:nohl"] = function()
         should_highlight = false
-    end,
+    end
 }
 
 local doc_commands = {
@@ -1181,28 +1190,35 @@ local doc_commands = {
     ["vim:search"] = function()
         local line, col = doc():get_selection()
 
-        core.command_view:set_text(previous_find_command, true)
+        core.command_view:set_text(previous_search_command, true)
         core.command_view:enter(
             "Search",
             function(text)
-                previous_find_command = text
-                should_highlight = true
+                previous_search_command = search_text
+
                 local l1, c1 =
                     vim_search.find(doc(), line, col + 1, text, {wrap = true, no_case = text == text:lower()})
                 if l1 then
                     doc():set_selection(l1, c1)
                 end
             end,
-            nil,
+            function(text)
+                search_text = text
+                should_highlight = text ~= ""
+            end,
             function(explicit)
-                if explicit then
+                if explicit or search_text == "" then
                     should_highlight = false
                 end
             end
         )
     end,
     ["vim:search-next"] = function()
-        if previous_find_command ~= "" then
+        if previous_search_command ~= "" then
+            if search_text ~= previous_search_command then
+                search_text = previous_search_command
+            end
+
             should_highlight = true
             local line, col = doc():get_selection()
             local l1, c1 =
@@ -1210,18 +1226,22 @@ local doc_commands = {
                 doc(),
                 line,
                 col + 1,
-                previous_find_command,
-                {wrap = true, no_case = previous_find_command == previous_find_command:lower()}
+                previous_search_command,
+                {wrap = true, no_case = previous_search_command == previous_search_command:lower()}
             )
             if l1 then
                 doc():set_selection(l1, c1)
             end
         else
-            core.error("No previous find")
+            core.error "No previous find"
         end
     end,
     ["vim:search-previous"] = function()
-        if previous_find_command ~= "" then
+        if previous_search_command ~= "" then
+            if search_text ~= previous_search_command then
+                search_text = previous_search_command
+            end
+
             should_highlight = true
             local line, col = doc():get_selection()
             local l1, c1 =
@@ -1229,15 +1249,35 @@ local doc_commands = {
                 doc(),
                 line,
                 col - 1,
-                previous_find_command,
-                {wrap = true, no_case = previous_find_command == previous_find_command:lower()}
+                previous_search_command,
+                {wrap = true, no_case = previous_search_command == previous_search_command:lower()}
             )
             if l1 then
                 doc():set_selection(l1, c1)
             end
         else
-            core.error("No previous find")
+            core.error "No previous find"
         end
+    end,
+    ["vim:sort-lines"] = function()
+        if not doc():has_selection() then
+            return
+        end
+
+        local l1, _, l2 = doc():get_selection(true)
+
+        local lines = {}
+        for i = l1, l2 do
+            table.insert(lines, doc().lines[i])
+        end
+
+        table.sort(lines)
+
+        doc():remove(l1, 1, l2, math.huge)
+        doc():insert(l1, 1, table.concat(lines):sub(1, -2))
+
+        normal_mode()
+        doc():set_selection(l1, 1)
     end,
     ["vim:swap-case"] = function()
         local l1, c1, l2, c2 = get_selection(doc())
@@ -1307,6 +1347,12 @@ for name, fn in pairs(vim_translation_commands) do
     end
     doc_commands["vim:change-to-" .. name] = function()
         doc():delete_to(fn, dv())
+        --[[
+        local l1, c1 = doc():get_selection()
+        local l2, c2 = doc():position_offset(l1, c1, fn, dv())
+        doc():set_selection(l1, c1, l2, c2)
+        command.perform "vim:cut"
+        ]]
         insert_mode()
     end
 end
@@ -1319,7 +1365,7 @@ keymap.add {
     ["normal+shift+f3"] = "vim:debug",
     ["visual+shift+f3"] = "vim:debug",
     -- insert
-    ["escape"] = "vim:normal-mode",
+    ["escape"] = "vim:escape",
     -- normal
     ["normal+escape"] = {"command:escape", "vim:force-normal-mode"},
     ["normal+shift+;"] = "vim:exec",
@@ -1396,6 +1442,7 @@ keymap.add {
     ["visual+escape"] = "vim:exit-visual-mode",
     ["visual+ctrl+p"] = "vim:find-file",
     ["visual+ctrl+shift+p"] = "vim:find-command",
+    ["visual+shift+;"] = "vim:exec",
     ["visual+h"] = "vim:select-to-previous-char",
     ["visual+j"] = "doc:select-to-next-line",
     ["visual+k"] = "doc:select-to-previous-line",
