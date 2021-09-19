@@ -1,3 +1,5 @@
+-- mod-version:2 -- lite-xl 2.0
+
 --[[
 
 vim.lua - see end of file for license information
@@ -42,6 +44,8 @@ local style = require "core.style"
 local translate = require "core.doc.translate"
 local common = require "core.common"
 local config = require "core.config"
+
+local is_lite_xl = system.get_file_info "data/core/start.lua"
 
 local function dv()
     return core.active_view
@@ -556,7 +560,10 @@ function DocView:on_mouse_pressed(button, x, y, clicks)
         self.doc:set_selection(mouse_selection(self.doc, clicks, line, col, line, col))
         self.mouse_selecting = {line, col, clicks = clicks}
     end
-    self.blink_timer = 0
+
+    if not is_lite_xl then
+        self.blink_timer = 0
+    end
 end
 
 function DocView:on_mouse_moved(x, y, ...)
@@ -589,8 +596,6 @@ function DocView:on_text_input(text)
         self.doc:text_input(text)
     end
 end
-
-local blink_period = 0.8
 
 local function draw_box(x, y, w, h, pad, color)
     local r = renderer.draw_rect
@@ -667,8 +672,19 @@ function DocView:draw_line_body(idx, x, y)
     -- draw line's text
     self:draw_line_text(idx, x, y)
 
+    local blink_period
+    local timer
+
+    if is_lite_xl then
+        blink_period = config.blink_period
+        timer = (core.blink_timer - core.blink_start) % blink_period
+    else
+        blink_period = 0.8
+        timer = self.blink_timer
+    end
+
     -- draw caret
-    if line == idx and core.active_view == self and self.blink_timer < blink_period / 2 and system.window_has_focus() then
+    if line == idx and core.active_view == self and timer < blink_period / 2 and system.window_has_focus() then
         local lh = self:get_line_height()
         local x1 = x + self:get_col_x_offset(line, col)
 
@@ -687,6 +703,12 @@ function DocView:draw_line_body(idx, x, y)
         else
             renderer.draw_rect(x1, y, style.caret_width, lh, style.caret)
         end
+    end
+end
+
+if is_lite_xl then
+    function DocView:draw_overlay()
+        -- pass
     end
 end
 
