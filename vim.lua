@@ -3,16 +3,19 @@
 vim.lua - see end of file for license information
 
 TODO LIST
-(IN PROGRESS) combos (dw, yy, ...)
-    - diw, cit
+(IN PROGRESS) combos
+    - diw, cit, ...
 (IN PROGRESS) commands
     - :q!
     - :s/foo/bar/g
 (IN PROGRESS) number + command (123g, 50j, d3w, y10l)
+(IN PROGRESS) marks (``, m)
+    - last change (`.)
+    - yank/change/delete to mark (y`a)
+    - uppercase marks (mA)
 visual block
 repeat (.)
 macros (q, @)
-marks (``, m)
 delete other windows (ctrl+w o)
 replace mode (shift+r)
 
@@ -52,7 +55,6 @@ end
 local mode = "normal"
 -- one of: nil, "line", "block"
 local visual_submode
-local previous_visual_submode
 
 local function normal_mode()
     mode = "normal"
@@ -69,6 +71,7 @@ local function insert_mode()
     visual_submode = nil
 end
 
+-- doc:get_selection, but supports visual line
 local function get_selection(doc)
     local l1, c1, l2, c2 = doc:get_selection(true)
 
@@ -162,8 +165,11 @@ local stroke_combo_string = ""
 -- either nil, or a function in mini_mode_callbacks
 local mini_mode
 
+local previous_find_text
+
 local mini_mode_callbacks = {
     find = function(input_text)
+        previous_find_text = input_text
         local line, col = doc():get_selection()
         local text = doc():get_text(line, 1, line, math.huge)
 
@@ -179,6 +185,7 @@ local mini_mode_callbacks = {
         core.error("Can't find " .. input_text)
     end,
     find_backwards = function(input_text)
+        previous_find_text = input_text
         local line, col = doc():get_selection()
         local text = doc():get_text(line, 1, line, math.huge)
 
@@ -194,6 +201,7 @@ local mini_mode_callbacks = {
         core.error("Can't find " .. input_text)
     end,
     find_til = function(input_text)
+        previous_find_text = input_text
         local line, col = doc():get_selection()
         local text = doc():get_text(line, 1, line, math.huge)
 
@@ -209,6 +217,7 @@ local mini_mode_callbacks = {
         core.error("Can't find " .. input_text)
     end,
     find_til_backwards = function(input_text)
+        previous_find_text = input_text
         local line, col = doc():get_selection()
         local text = doc():get_text(line, 1, line, math.huge)
 
@@ -234,6 +243,27 @@ local mini_mode_callbacks = {
         if mode == "visual" then
             doc():set_selection(l1, c1)
             normal_mode()
+        end
+    end,
+    set_mark = function(input_text)
+        local line, col = doc():get_selection()
+        dv().vim_marks[input_text] = {line, col}
+        core.log("Set mark: " .. input_text)
+    end,
+    goto_mark = function(input_text)
+        local l1, c1, l2, c2 = doc():get_selection()
+
+        local mark = dv().vim_marks[input_text]
+        if mark then
+            if doc():has_selection() then
+                doc():set_selection(mark[1], mark[2], l2, c2)
+            else
+                doc():set_selection(mark[1], mark[2])
+            end
+
+            dv().vim_marks["`"] = {l1, c1}
+        else
+            core.error("Mark not set: " .. input_text)
         end
     end
 }
@@ -378,7 +408,7 @@ function keymap.on_key_pressed(k)
         elseif mode == "visual" then
             commands = keymap.map["visual" .. stroke_combo_string .. "+" .. stroke]
         else
-            core.error("Cannot handle key in unknown mode '%s'", mode)
+            core.error('Cannot handle key in unknown mode "%s"', mode)
         end
 
         if commands then
@@ -466,6 +496,8 @@ local function mouse_selection(doc, clicks, l1, c1, l2, c2)
     return l1, c1, l2, c2
 end
 
+local previous_visual_submode
+
 local command_view_enter = CommandView.enter
 function CommandView:enter(text, submit, suggest, cancel)
     previous_visual_submode = visual_submode
@@ -492,6 +524,13 @@ function Doc:undo()
         local line, col = self:get_selection()
         self:set_selection(line, col)
     end
+end
+
+local docview_new = DocView.new
+function DocView:new(doc)
+    DocView.super.new(self)
+    docview_new(self, doc)
+    self.vim_marks = {}
 end
 
 function DocView:on_mouse_pressed(button, x, y, clicks)
@@ -698,7 +737,9 @@ end
 
 local vim_translate = {}
 
-function vim_translate.goto_first_line(doc, line, col)
+function vim_translate.goto_first_line(doc, line, col, dv)
+    dv.vim_marks["`"] = {line, col}
+
     if n_repeat ~= 0 then
         local n = n_repeat
         n_repeat = 0
@@ -708,7 +749,9 @@ function vim_translate.goto_first_line(doc, line, col)
     end
 end
 
-function vim_translate.goto_line(doc, line, col)
+function vim_translate.goto_line(doc, line, col, dv)
+    dv.vim_marks["`"] = {line, col}
+
     if n_repeat ~= 0 then
         local n = n_repeat
         n_repeat = 0
@@ -960,8 +1003,8 @@ local commands = {
     ["vim:debug"] = function()
         -- local line1, col1, line2, col2 = doc():get_selection(true)
         -- print(line1, col1, line2, col2)
-        print("previous_search_command", previous_search_command)
-        print("search_text", search_text)
+        -- print("previous_search_command", previous_search_command)
+        -- print("search_text", search_text)
     end,
     ["vim:use-user-stroke-combos"] = function()
         merge_trees(stroke_combo_tree, config.vim_stroke_combos or {})
@@ -1000,7 +1043,7 @@ local commands = {
                 if cmd then
                     command.perform(cmd)
                 else
-                    core.error("Unknown command ':%s'", text)
+                    core.error('Unknown command ":%s"', text)
                 end
             end
         )
@@ -1098,6 +1141,9 @@ local doc_commands = {
     ["vim:find-char-til-backwards"] = function()
         mini_mode = mini_mode_callbacks.find_til_backwards
     end,
+    ["vim:goto-mark"] = function()
+        mini_mode = mini_mode_callbacks.goto_mark
+    end,
     ["vim:indent-left"] = function()
         local l1, c1, l2 = doc():get_selection(true)
 
@@ -1194,12 +1240,15 @@ local doc_commands = {
         core.command_view:enter(
             "Search",
             function(text)
-                previous_search_command = search_text
+                assert(search_text == text)
+                previous_search_command = text
 
                 local l1, c1 =
                     vim_search.find(doc(), line, col + 1, text, {wrap = true, no_case = text == text:lower()})
                 if l1 then
                     doc():set_selection(l1, c1)
+                else
+                    core.error(string.format('Search failed: "%s"', text))
                 end
             end,
             function(text)
@@ -1231,6 +1280,8 @@ local doc_commands = {
             )
             if l1 then
                 doc():set_selection(l1, c1)
+            else
+                core.error(string.format('Search failed: "%s"', previous_search_command))
             end
         else
             core.error "No previous find"
@@ -1254,10 +1305,15 @@ local doc_commands = {
             )
             if l1 then
                 doc():set_selection(l1, c1)
+            else
+                core.error(string.format('Search failed: "%s"', previous_search_command))
             end
         else
             core.error "No previous find"
         end
+    end,
+    ["vim:set-mark"] = function()
+        mini_mode = mini_mode_callbacks.set_mark
     end,
     ["vim:sort-lines"] = function()
         if not doc():has_selection() then
@@ -1284,20 +1340,20 @@ local doc_commands = {
         local text = doc():get_text(l1, c1, l2, c2)
         doc():remove(l1, c1, l2, c2)
 
-        local split = {}
+        local chars = {}
         for c in text:gmatch "." do
-            table.insert(split, c)
+            table.insert(chars, c)
         end
 
-        for k, c in pairs(split) do
+        for k, c in pairs(chars) do
             if c:match "[A-Z]" then
-                split[k] = c:lower()
+                chars[k] = c:lower()
             else
-                split[k] = c:upper()
+                chars[k] = c:upper()
             end
         end
 
-        doc():insert(l1, c1, table.concat(split))
+        doc():insert(l1, c1, table.concat(chars))
 
         if mode == "normal" then
             doc():set_selection(l1, c1 + 1)
@@ -1345,6 +1401,7 @@ for name, fn in pairs(vim_translation_commands) do
     doc_commands["vim:delete-to-" .. name] = function()
         doc():delete_to(fn, dv())
     end
+
     doc_commands["vim:change-to-" .. name] = function()
         doc():delete_to(fn, dv())
         --[[
@@ -1431,6 +1488,8 @@ keymap.add {
     ["normal+shift+t"] = "vim:find-char-til-backwards",
     ["normal+ctrl+e"] = "vim:scroll-line-down",
     ["normal+ctrl+y"] = "vim:scroll-line-up",
+    ["normal+`"] = "vim:goto-mark",
+    ["normal+m"] = "vim:set-mark",
     -- splits
     ["normal+ctrl+w+v"] = "root:split-right",
     ["normal+ctrl+w+s"] = "root:split-down",
