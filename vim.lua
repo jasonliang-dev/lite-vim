@@ -27,7 +27,6 @@ TOFIX LIST
 (high) tab indent (<<, >>) is broken
 (high) pasting
     - visual line submode ignored when pasting
-(high) forward/back word skips newlines
 (low) cursor should always stay in view (ctrl+e/y, mouse wheel)
 (low) autocomplete shows up when using find (f)
 (low) cursor shouldn't be able to sit on the newline
@@ -854,9 +853,14 @@ function vim_translate.end_of_word(doc, line, col)
 end
 
 function vim_translate.previous_word(doc, line, col)
+    local anchor = line
     while line > 1 or col > 1 do
         local char = doc:get_char(line, col)
         local prev_line, prev_col = doc:position_offset(line, col, -1)
+        if anchor - prev_line > 1 then
+            break
+        end
+
         local prev = doc:get_char(prev_line, prev_col)
 
         if char_type(prev) ~= "whitespace" then
@@ -870,11 +874,16 @@ function vim_translate.previous_word(doc, line, col)
 end
 
 function vim_translate.next_word(doc, line, col)
+    local anchor = line
     local end_line, end_col = translate.end_of_doc(doc, line, col)
 
     while line < end_line or col < end_col do
         local char = doc:get_char(line, col)
         local next_line, next_col = doc:position_offset(line, col, 1)
+        if next_line - anchor > 1 then
+            break
+        end
+
         local next = doc:get_char(next_line, next_col)
 
         if char_type(next) ~= "whitespace" and char_type(char) ~= char_type(next) then
