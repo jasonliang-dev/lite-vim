@@ -20,14 +20,14 @@ repeat (.)
 macros (q, @)
 delete other windows (ctrl+w o)
 replace mode (shift+r)
+char count and line count in visual mode
 
 TOFIX LIST
-(SEVERE) tab characters sometimes makes text overlap
+(SEVERE) tab characters sometimes makes text overlap (sometimes?)
 (high) commands in normal mode sometimes "leaks" and are treated as text input
 (high) tab indent (<<, >>) is broken
 (low) cursor should always stay in view (ctrl+e/y, mouse wheel)
 (low) autocomplete shows up when using find (f)
-(low) cursor shouldn't be able to sit on the newline
 
 --]]
 --
@@ -587,6 +587,21 @@ function DocView:on_mouse_moved(x, y, ...)
     end
 end
 
+local docview_on_mouse_released = DocView.on_mouse_released
+function DocView:on_mouse_released(button)
+    docview_on_mouse_released(self, button)
+    local line, col = self.doc:get_selection()
+
+    if col == #self.doc.lines[line] then
+        if self.doc:has_selection() then
+            local l1, c1, l2, c2 = self.doc:get_selection()
+            self.doc:set_selection(l1, c1 - 1, l2, c2)
+        else
+            self.doc:set_selection(line, col - 1)
+        end
+    end
+end
+
 function DocView:on_text_input(text)
     if mini_mode then
         mini_mode(text)
@@ -778,7 +793,7 @@ function vim_translate.goto_line(doc, line, col, dv)
         n_repeat = 0
         return n, 1
     else
-        return translate.end_of_doc(doc, line, col)
+        return #doc.lines, #doc.lines[#doc.lines] - 1
     end
 end
 
@@ -808,8 +823,30 @@ function vim_translate.next_char(doc, line, col)
     if line ~= line2 then
         return line, col
     else
+        if col2 == #doc.lines[line2] then
+            col2 = col2 - 1
+        end
+
         return line2, col2
     end
+end
+
+function vim_translate.previous_line(doc, line, col, dv)
+    local line2, col2 = DocView.translate.previous_line(doc, line, col, dv)
+    if col2 >= #doc.lines[line2] then
+        col2 = #doc.lines[line2] - 1
+    end
+
+    return line2, col2
+end
+
+function vim_translate.next_line(doc, line, col, dv)
+    local line2, col2 = DocView.translate.next_line(doc, line, col, dv)
+    if col2 >= #doc.lines[line2] then
+        col2 = #doc.lines[line2] - 1
+    end
+
+    return line2, col2
 end
 
 function vim_translate.start_of_word(doc, line, col)
@@ -1032,10 +1069,6 @@ end
 
 local commands = {
     ["vim:debug"] = function()
-        -- local line1, col1, line2, col2 = doc():get_selection(true)
-        -- print(line1, col1, line2, col2)
-        -- print("previous_search_command", previous_search_command)
-        -- print("search_text", search_text)
     end,
     ["vim:use-user-stroke-combos"] = function()
         merge_trees(stroke_combo_tree, config.vim_stroke_combos or {})
@@ -1256,7 +1289,6 @@ local doc_commands = {
     ["vim:paste"] = function()
         local clipboard = system.get_clipboard():gsub("\r", "")
 
-        print(clipboard:sub(-1))
         if doc():has_selection() then
             command.perform "vim:cut"
             doc():text_input(clipboard)
@@ -1273,7 +1305,6 @@ local doc_commands = {
     ["vim:paste-before"] = function()
         local clipboard = system.get_clipboard():gsub("\r", "")
 
-        print(clipboard:sub(-1))
         if doc():has_selection() then
             command.perform "vim:cut"
             doc():text_input(clipboard)
@@ -1444,6 +1475,8 @@ local vim_translation_commands = {
     ["previous-char"] = vim_translate.previous_char,
     ["next-char"] = vim_translate.next_char,
     ["previous-word"] = vim_translate.previous_word,
+    ["next-line"] = vim_translate.next_line,
+    ["previous-line"] = vim_translate.previous_line,
     ["next-word"] = vim_translate.next_word,
     ["next-word-end"] = vim_translate.next_word_end,
     ["end-of-line"] = vim_translate.end_of_line,
@@ -1545,8 +1578,8 @@ keymap.add {
     ["normal+up"] = "doc:move-to-previous-line",
     ["normal+right"] = "vim:move-to-next-char",
     ["normal+h"] = "vim:move-to-previous-char",
-    ["normal+j"] = "doc:move-to-next-line",
-    ["normal+k"] = "doc:move-to-previous-line",
+    ["normal+j"] = "vim:move-to-next-line",
+    ["normal+k"] = "vim:move-to-previous-line",
     ["normal+l"] = "vim:move-to-next-char",
     ["normal+b"] = "vim:move-to-previous-word",
     ["normal+w"] = "vim:move-to-next-word",
@@ -1583,8 +1616,8 @@ keymap.add {
     ["visual+ctrl+shift+p"] = "vim:find-command",
     ["visual+shift+;"] = "vim:exec",
     ["visual+h"] = "vim:select-to-previous-char",
-    ["visual+j"] = "doc:select-to-next-line",
-    ["visual+k"] = "doc:select-to-previous-line",
+    ["visual+j"] = "vim:select-to-next-line",
+    ["visual+k"] = "vim:select-to-previous-line",
     ["visual+l"] = "vim:select-to-next-char",
     ["visual+b"] = "vim:select-to-previous-word",
     ["visual+w"] = "vim:select-to-next-word",
