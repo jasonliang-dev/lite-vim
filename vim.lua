@@ -25,8 +25,6 @@ TOFIX LIST
 (SEVERE) tab characters sometimes makes text overlap
 (high) commands in normal mode sometimes "leaks" and are treated as text input
 (high) tab indent (<<, >>) is broken
-(high) pasting
-    - visual line submode ignored when pasting
 (low) cursor should always stay in view (ctrl+e/y, mouse wheel)
 (low) autocomplete shows up when using find (f)
 (low) cursor shouldn't be able to sit on the newline
@@ -1118,6 +1116,10 @@ local doc_commands = {
     ["vim:copy"] = function()
         local l1, c1, l2, c2 = get_selection(doc())
         local text = doc():get_text(l1, c1, l2, c2)
+        if visual_submode == "line" then
+            text = text .. "\n"
+        end
+
         system.set_clipboard(text)
         doc():set_selection(l1, c1)
         normal_mode()
@@ -1250,6 +1252,40 @@ local doc_commands = {
         doc():insert(l1, c1, text:lower())
         doc():set_selection(l1, c1)
         normal_mode()
+    end,
+    ["vim:paste"] = function()
+        local clipboard = system.get_clipboard():gsub("\r", "")
+
+        print(clipboard:sub(-1))
+        if doc():has_selection() then
+            command.perform "vim:cut"
+            doc():text_input(clipboard)
+        elseif clipboard:sub(-1) == "\n" then
+            local line = doc():get_selection()
+            doc():insert(line, math.huge, "\n" .. clipboard:sub(1, -2))
+            doc():set_selection(line + 1, 1)
+        else
+            local line, col = doc():get_selection()
+            doc():insert(line, col + 1, clipboard)
+            doc():move_to(#clipboard)
+        end
+    end,
+    ["vim:paste-before"] = function()
+        local clipboard = system.get_clipboard():gsub("\r", "")
+
+        print(clipboard:sub(-1))
+        if doc():has_selection() then
+            command.perform "vim:cut"
+            doc():text_input(clipboard)
+        elseif clipboard:sub(-1) == "\n" then
+            local line = doc():get_selection()
+            doc():insert(line, 1, clipboard)
+            doc():set_selection(line, 1)
+        else
+            local line, col = doc():get_selection()
+            doc():insert(line, col, clipboard)
+            doc():move_to(#clipboard)
+        end
     end,
     ["vim:replace"] = function()
         mini_mode = mini_mode_callbacks.replace
@@ -1484,8 +1520,8 @@ keymap.add {
     ["normal+i"] = "vim:insert-mode",
     ["normal+o"] = "vim:insert-newline-below",
     ["normal+shift+o"] = "vim:insert-newline-above",
-    ["normal+p"] = "doc:paste",
-    ["normal+shift+p"] = "doc:paste",
+    ["normal+p"] = "vim:paste",
+    ["normal+shift+p"] = "vim:paste-before",
     ["normal+ctrl+p"] = "vim:find-file",
     ["normal+ctrl+shift+p"] = "vim:find-command",
     ["normal+ctrl+\\"] = "treeview:toggle",
@@ -1575,8 +1611,8 @@ keymap.add {
     ["visual+shift+`"] = "vim:swap-case",
     ["visual+u"] = "vim:lowercase",
     ["visual+shift+u"] = "vim:uppercase",
-    ["visual+p"] = "doc:paste",
-    ["visual+shift+p"] = "doc:paste",
+    ["visual+p"] = "vim:paste",
+    ["visual+shift+p"] = "vim:paste-before",
     ["visual+shift+h"] = "vim:select-to-visible-top",
     ["visual+shift+m"] = "vim:select-to-visible-middle",
     ["visual+shift+l"] = "vim:select-to-visible-bottom",
