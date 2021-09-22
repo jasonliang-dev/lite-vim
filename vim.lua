@@ -22,7 +22,9 @@ delete other windows (ctrl+w o)
 replace mode (shift+r)
 
 TOFIX LIST
-(high) change word (cw) isn't the same as vim
+(SEVERE) tab characters sometimes makes text overlap
+(high) commands in normal mode sometimes "leaks" and are treated as text input
+(high) tab indent (<<, >>) is broken
 (high) pasting
     - visual line submode ignored when pasting
 (high) forward/back word skips newlines
@@ -1421,17 +1423,27 @@ for name, fn in pairs(vim_translation_commands) do
     end
 
     doc_commands["vim:delete-to-" .. name] = function()
+        local l1, c1 = doc():get_selection(true)
+        local l2, c2 = doc():position_offset(l1, c1, fn, dv())
+        system.set_clipboard(doc():get_text(l1, c1, l2, c2))
         doc():delete_to(fn, dv())
     end
 
     doc_commands["vim:change-to-" .. name] = function()
-        doc():delete_to(fn, dv())
-        --[[
-        local l1, c1 = doc():get_selection()
+        local l1, c1 = doc():get_selection(true)
+
         local l2, c2 = doc():position_offset(l1, c1, fn, dv())
-        doc():set_selection(l1, c1, l2, c2)
-        command.perform "vim:cut"
-        ]]
+        c2 = c2 + 1
+        l2, c2 = doc():sanitize_position(l2, c2)
+
+        system.set_clipboard(doc():get_text(l1, c1, l2, c2))
+        doc():remove(l1, c1, l2, c2)
+
+        if l1 > l2 or l1 == l2 and c1 > c2 then
+            l1, c1 = l2, c2
+        end
+
+        doc():set_selection(l1, c1)
         insert_mode()
     end
 end
@@ -1452,7 +1464,8 @@ keymap.add {
     ["normal+shift+a"] = "vim:insert-end-of-line",
     ["normal+c+c"] = "vim:change-line",
     ["normal+shift+c"] = "vim:change-end-of-line",
-    ["normal+c+w"] = "vim:change-to-next-word",
+    ["normal+c+w"] = "vim:change-to-next-word-end",
+    ["normal+c+e"] = "vim:change-to-next-word-end",
     ["normal+d+d"] = "vim:delete-lines",
     ["normal+d+w"] = "vim:delete-to-next-word",
     ["normal+shift+d"] = "vim:delete-end-of-line",
