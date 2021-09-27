@@ -1415,6 +1415,7 @@ local doc_commands = {
         if doc():has_selection() then
             command.perform "vim:cut"
             doc():text_input(clipboard)
+            normal_mode()
         elseif clipboard:sub(-1) == "\n" then
             local line = doc():get_selection()
             doc():insert(line, math.huge, "\n" .. clipboard:sub(1, -2))
@@ -1431,6 +1432,7 @@ local doc_commands = {
         if doc():has_selection() then
             command.perform "vim:cut"
             doc():text_input(clipboard)
+            normal_mode()
         elseif clipboard:sub(-1) == "\n" then
             local line = doc():get_selection()
             doc():insert(line, 1, clipboard)
