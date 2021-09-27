@@ -15,19 +15,20 @@ TODO LIST
     - last change (`.)
     - yank/change/delete to mark (y`a)
     - uppercase marks (mA)
-visual block
 repeat (.)
 macros (q, @)
 delete other windows (ctrl+w o)
 replace mode (shift+r)
-char count and line count in visual mode
+find char in visual mode
 
 TOFIX LIST
 (SEVERE) tab characters sometimes makes text overlap (sometimes?)
 (high) commands in normal mode sometimes "leaks" and are treated as text input
 (high) tab indent (<<, >>) is broken
+(low) pasting in visual line doesn't work
 (low) cursor should always stay in view (ctrl+e/y, mouse wheel)
 (low) autocomplete shows up when using find (f)
+(low) visual block insert sometimes gets misaligned
 
 --]]
 --
@@ -54,10 +55,14 @@ local function doc()
     return core.active_view.doc
 end
 
--- one of: "normal", "visual", "insert"
-local mode = "normal"
--- one of: nil, "line", "block"
-local visual_submode
+local mode = "normal" -- one of: "normal", "visual", "insert"
+local visual_submode  -- one of: nil, "line", "block"
+
+local visual_block_state = {
+    current = "stopped", -- one of: "stopped", "recording", "playing"
+    event_buffer = {},
+    selection = {}
+}
 
 local function normal_mode()
     mode = "normal"
@@ -78,7 +83,9 @@ end
 local function get_selection(doc)
     local l1, c1, l2, c2 = doc:get_selection(true)
 
-    if visual_submode == "line" then
+    if visual_submode == "block" then
+        core.error "get_selection while in visual block"
+    elseif visual_submode == "line" then
         c1 = 1
         c2 = #doc.lines[l2]
     else
@@ -160,13 +167,10 @@ local previous_search_command = ""
 local search_text = ""
 local should_highlight = false
 
--- should be a reference to an item in stroke_combo_tree
-local stroke_combo_loc = stroke_combo_tree[mode]
--- key buffer
-local stroke_combo_string = ""
+local stroke_combo_loc = stroke_combo_tree[mode] -- should be a reference to an item in stroke_combo_tree
+local stroke_combo_string = "" -- key buffer
 
--- either nil, or a function in mini_mode_callbacks
-local mini_mode
+local mini_mode  -- either nil, or a function in mini_mode_callbacks
 
 local previous_find_text
 
@@ -627,19 +631,27 @@ function DocView:draw_line_body(idx, x, y)
     -- draw selection
     if core.active_view == self and idx >= line1 and idx <= line2 then
         local text = self.doc.lines[idx]
-        if line1 ~= idx then
-            col1 = 1
-        end
-        if line2 ~= idx then
-            col2 = #text + 1
-        end
 
         local x1
         local x2
-        if visual_submode == "line" then
+        if visual_submode == "block" then
+            if col1 > col2 then
+                col1, col2 = col2, col1
+            end
+
+            x1 = x + self:get_col_x_offset(idx, col1)
+            x2 = x + self:get_col_x_offset(idx, col2 + 1)
+        elseif visual_submode == "line" then
             x1 = x
             x2 = x + self:get_col_x_offset(idx, #text + 1)
         else
+            if line1 ~= idx then
+                col1 = 1
+            end
+            if line2 ~= idx then
+                col2 = #text + 1
+            end
+
             x1 = x + self:get_col_x_offset(idx, col1)
 
             if mode == "visual" and line2 == idx then
@@ -730,17 +742,49 @@ local status_view_get_items = StatusView.get_items
 function StatusView:get_items()
     local left, right = status_view_get_items(self)
 
-    if mode ~= "normal" then
-        if next(left) then
-            table.insert(left, style.dim)
-            table.insert(left, self.separator)
-        end
+    if mode == "normal" then
+        return left, right
+    end
 
-        table.insert(left, style.accent or style.text)
-        if visual_submode then
-            table.insert(left, string.format("-- %s %s --", mode, visual_submode))
+    if next(left) then
+        table.insert(left, style.dim)
+        table.insert(left, self.separator)
+    end
+
+    table.insert(left, style.accent or style.text)
+    if visual_submode then
+        table.insert(left, string.format("-- %s %s --", mode, visual_submode))
+    else
+        table.insert(left, string.format("-- %s --", mode))
+    end
+
+    if mode == "visual" then
+        table.insert(left, style.text)
+        table.insert(left, self.separator)
+
+        local l1, c1, l2, c2 = doc():get_selection(true)
+        local lines = math.abs(l1 - l2) + 1
+
+        if visual_submode == "block" then
+            table.insert(left, string.format("%dx%d", math.abs(l1 - l2) + 1, math.abs(c1 - c2) + 1))
+        elseif visual_submode == "line" then
+            if lines == 1 then
+                table.insert(left, "1 line")
+            else
+                table.insert(left, string.format("%d lines", lines))
+            end
         else
-            table.insert(left, string.format("-- %s --", mode))
+            if lines == 1 then
+                table.insert(left, string.format("%d chars", math.abs(c1 - c2) + 1))
+            else
+                local count = 0
+                for line = l1 + 1, l2 - 1 do
+                    count = count + #doc().lines[line] - 1
+                end
+                count = count + #doc().lines[l1] - c1 + 1
+                count = count + c2 - 1
+                table.insert(left, string.format("%d chars, %d lines", count, lines))
+            end
         end
     end
 
@@ -759,6 +803,21 @@ function core.set_active_view(view)
             view.doc:set_selection(min + math.floor((max - min) / 2), 1)
         end
     end
+end
+
+local handled_events = {
+    keypressed = true,
+    keyreleased = true,
+    textinput = true
+}
+
+local core_on_event = core.on_event
+function core.on_event(type, ...)
+    local res = core_on_event(type, ...)
+    if visual_block_state.current == "recording" and handled_events[type] then
+        table.insert(visual_block_state.event_buffer, {type, ...})
+    end
+    return res
 end
 
 local function char_type(char)
@@ -1077,13 +1136,33 @@ local commands = {
     ["vim:escape"] = function()
         if core.active_view:is(CommandView) then
             command.perform "command:escape"
-        else
-            normal_mode()
-
-            if doc() then
-                doc():move_to(vim_translate.previous_char, dv())
-            end
+            return
         end
+
+        if not doc() then
+            normal_mode()
+            return
+        end
+
+        if visual_block_state.current == "recording" then
+            local final_location = table.pack(doc():get_selection())
+            visual_block_state.current = "playing"
+
+            local l1, c1, l2, c2 = table.unpack(visual_block_state.selection)
+            for line = l1 + 1, l2 do
+                doc():set_selection(line, c1)
+                for _, ev in ipairs(visual_block_state.event_buffer) do
+                    core_on_event(table.unpack(ev))
+                    core.root_view:update()
+                end
+            end
+
+            visual_block_state.current = "stopped"
+            doc():set_selection(table.unpack(final_location))
+        end
+
+        normal_mode()
+        doc():move_to(vim_translate.previous_char, dv())
     end,
     ["vim:force-normal-mode"] = function()
         normal_mode()
@@ -1092,6 +1171,9 @@ local commands = {
     ["vim:visual-mode"] = visual_mode,
     ["vim:visual-line-mode"] = function()
         visual_mode "line"
+    end,
+    ["vim:visual-block-mode"] = function()
+        visual_mode "block"
     end,
     ["vim:exit-visual-mode"] = function()
         command.perform "doc:select-none"
@@ -1138,7 +1220,14 @@ local doc_commands = {
         insert_mode()
     end,
     ["vim:change-selection"] = function()
+        local selection = table.pack(doc():get_selection(true))
         command.perform "vim:cut"
+        if visual_submode == "block" then
+            assert(visual_block_state.current == "stopped")
+            visual_block_state.current = "recording"
+            visual_block_state.event_buffer = {}
+            visual_block_state.selection = selection
+        end
         insert_mode()
     end,
     ["vim:change-word"] = function()
@@ -1158,11 +1247,30 @@ local doc_commands = {
         normal_mode()
     end,
     ["vim:cut"] = function()
-        local l1, c1, l2, c2 = get_selection(doc())
-        local text = doc():get_text(l1, c1, l2, c2)
-        system.set_clipboard(text)
-        doc():set_selection(l1, c1)
-        doc():remove(l1, c1, l2, c2)
+        if visual_submode == "block" then
+            local l1, c1, l2, c2 = doc():get_selection(true)
+
+            if c1 > c2 then
+                c1, c2 = c2, c1
+            end
+
+            c2 = c2 + 1
+
+            local lines = {}
+            for line = l1, l2 do
+                table.insert(lines, doc():get_text(line, c1, line, c2))
+                doc():remove(line, c1, line, c2)
+            end
+
+            system.set_clipboard(table.concat(lines, "\n"))
+            doc():set_selection(l1, c1)
+        else
+            local l1, c1, l2, c2 = get_selection(doc())
+            local text = doc():get_text(l1, c1, l2, c2)
+            system.set_clipboard(text)
+            doc():set_selection(l1, c1)
+            doc():remove(l1, c1, l2, c2)
+        end
     end,
     ["vim:copy-line"] = function()
         local line = doc():get_selection()
@@ -1253,6 +1361,17 @@ local doc_commands = {
     ["vim:insert-end-of-line"] = function()
         command.perform "doc:move-to-end-of-line"
         insert_mode()
+    end,
+    ["vim:insert-from-visual"] = function()
+        local l1, c1, l2, c2 = doc():get_selection(true)
+        if visual_submode == "block" then
+            assert(visual_block_state.current == "stopped")
+            visual_block_state.current = "recording"
+            visual_block_state.event_buffer = {}
+            visual_block_state.selection = table.pack(l1, c1, l2, c2)
+            doc():set_selection(l1, c1)
+            insert_mode()
+        end
     end,
     ["vim:insert-next-char"] = function()
         local line, col = doc():get_selection()
@@ -1563,6 +1682,7 @@ keymap.add {
     ["normal+g+shift+t"] = "root:switch-to-previous-tab",
     ["normal+v"] = "vim:visual-mode",
     ["normal+shift+v"] = "vim:visual-line-mode",
+    ["normal+ctrl+v"] = "vim:visual-block-mode",
     ["normal+x"] = "vim:delete-char",
     ["normal+y+y"] = "vim:copy-line",
     ["normal+u"] = "doc:undo",
@@ -1611,6 +1731,10 @@ keymap.add {
     ["normal+ctrl+w+k"] = "root:switch-to-up",
     ["normal+ctrl+w+l"] = "root:switch-to-right",
     -- visual
+    ["visual+v"] = "vim:visual-mode",
+    ["visual+shift+v"] = "vim:visual-line-mode",
+    ["visual+ctrl+v"] = "vim:visual-block-mode",
+    ["visual+v"] = "vim:visual-mode",
     ["visual+escape"] = "vim:exit-visual-mode",
     ["visual+ctrl+p"] = "vim:find-file",
     ["visual+ctrl+shift+p"] = "vim:find-command",
@@ -1651,7 +1775,7 @@ keymap.add {
     ["visual+shift+l"] = "vim:select-to-visible-bottom",
     ["visual+ctrl+e"] = "vim:scroll-line-down",
     ["visual+ctrl+y"] = "vim:scroll-line-up",
-    ["visual+shift+v"] = "vim:visual-line-mode"
+    ["visual+shift+i"] = "vim:insert-from-visual"
 }
 
 --[[
