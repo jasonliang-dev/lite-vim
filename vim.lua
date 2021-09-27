@@ -121,38 +121,6 @@ local stroke_combo_tree = {
     insert = {}
 }
 
--- merge t2 into t1
-local function merge_trees(t1, t2)
-    for k, v in pairs(t2) do
-        if t1[k] then
-            merge_trees(t1[k], v)
-        else
-            t1[k] = v
-        end
-    end
-end
-
---[[
-local function inspect_tree(tree, indent)
-    indent = indent or 0
-    local str = ""
-
-    if not tree then
-        str = str .. "nil\n"
-    else
-        str = str .. "{\n"
-        for k, v in pairs(tree) do
-            str =
-                str .. string.rep(" ", indent + 4) .. string.format("['%s'] = %s", k, inspect_tree(tree[k], indent + 4))
-        end
-        str = str .. string.rep(" ", indent) .. "}\n"
-    end
-
-    return str
-end
---]]
---
-
 local previous_exec_command = ""
 local exec_commands = {
     w = "doc:save",
@@ -610,7 +578,7 @@ function DocView:on_text_input(text)
     if mini_mode then
         mini_mode(text)
         mini_mode = nil
-    else
+    elseif mode == "insert" then
         self.doc:text_input(text)
     end
 end
@@ -1134,6 +1102,16 @@ local commands = {
     ["vim:debug"] = function()
     end,
     ["vim:use-user-stroke-combos"] = function()
+        local function merge_trees(t1, t2)
+            for k, v in pairs(t2) do
+                if t1[k] then
+                    merge_trees(t1[k], v)
+                else
+                    t1[k] = v
+                end
+            end
+        end
+
         merge_trees(stroke_combo_tree, config.vim_stroke_combos or {})
     end,
     ["vim:insert-mode"] = insert_mode,
