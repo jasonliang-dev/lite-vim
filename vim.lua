@@ -758,7 +758,7 @@ function StatusView:get_items()
         table.insert(left, string.format("-- %s --", mode))
     end
 
-    if mode == "visual" then
+    if mode == "visual" and doc() then
         table.insert(left, style.text)
         table.insert(left, self.separator)
 
@@ -775,7 +775,11 @@ function StatusView:get_items()
             end
         else
             if lines == 1 then
-                table.insert(left, string.format("%d chars", math.abs(c1 - c2) + 1))
+                if c1 == c2 then
+                    table.insert(left, "1 char")
+                else
+                    table.insert(left, string.format("%d chars", math.abs(c1 - c2) + 1))
+                end
             else
                 local count = 0
                 for line = l1 + 1, l2 - 1 do
