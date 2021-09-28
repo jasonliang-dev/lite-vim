@@ -9,7 +9,7 @@ TODO LIST
     - diw, cit, ...
 (IN PROGRESS) commands
     - :q!
-    - :s/foo/bar/g
+    - (IN PROGRESS) :s/foo/bar/g
 (IN PROGRESS) number + command (123g, 50j, d3w, y10l)
 (IN PROGRESS) marks (``, m)
     - last change (`.)
@@ -79,7 +79,7 @@ local function insert_mode()
     visual_submode = nil
 end
 
--- doc:get_selection, but supports visual line
+-- doc:get_selection, but it gets vim's visual region
 local function get_selection(doc)
     local l1, c1, l2, c2 = doc:get_selection(true)
 
@@ -129,6 +129,12 @@ local exec_commands = {
     x = "vim:save-and-close",
     nohl = "vim:nohl",
     sort = "vim:sort-lines"
+}
+
+local substitute = {
+    from = "",
+    to = "",
+    mods = {}
 }
 
 local previous_search_command = ""
@@ -580,6 +586,29 @@ function DocView:on_text_input(text)
         mini_mode = nil
     elseif mode == "insert" then
         self.doc:text_input(text)
+    end
+end
+
+function DocView:draw_line_text(idx, x, y)
+    local tx, ty = x, y + self:get_line_text_y_offset()
+    local font = self:get_font()
+
+    if substitute.from ~= "" and not self:is(CommandView) then
+        local text = self.doc.lines[idx]
+        local s, e = text:find(substitute.from)
+        if s then
+            tx = renderer.draw_text(font, text:sub(1, s - 1), tx, ty, style.syntax.comment)
+            tx = renderer.draw_text(font, text:sub(s, e), tx, ty, style.syntax.keyword2)
+            tx = renderer.draw_text(font, substitute.to, tx, ty, style.syntax["function"])
+            tx = renderer.draw_text(font, text:sub(e + 1), tx, ty, style.syntax.comment)
+        else
+            renderer.draw_text(font, text, tx, ty, style.syntax.comment)
+        end
+    else
+        for _, type, text in self.doc.highlighter:each_token(idx) do
+            local color = style.syntax[type]
+            tx = renderer.draw_text(font, text, tx, ty, color)
+        end
     end
 end
 
@@ -1167,12 +1196,33 @@ local commands = {
             "vim",
             function(text)
                 previous_exec_command = text
+
+                if text:sub(1, 1) == "s" then
+                    substitute.from = ""
+                    substitute.to = ""
+                    return
+                end
+
                 local cmd = exec_commands[text]
                 if cmd then
                     command.perform(cmd)
                 else
                     core.error('Unknown command ":%s"', text)
                 end
+            end,
+            function(text)
+                if text:sub(1, 1) == "s" then
+                    local split = {}
+                    for str in text:gmatch "/([^/]*)" do
+                        table.insert(split, str)
+                    end
+                    substitute.from = split[1] or ""
+                    substitute.to = split[2] or ""
+                end
+            end,
+            function(explicit)
+                substitute.from = ""
+                substitute.to = ""
             end
         )
     end,
