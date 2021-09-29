@@ -134,7 +134,8 @@ local exec_commands = {
 local substitute = {
     from = "",
     to = "",
-    mods = {}
+    mods = "",
+    display = false
 }
 
 local previous_search_command = ""
@@ -590,20 +591,28 @@ function DocView:on_text_input(text)
 end
 
 function DocView:draw_line_text(idx, x, y)
+    local line1, col1, line2, col2 = self.doc:get_selection(true)
+
     local tx, ty = x, y + self:get_line_text_y_offset()
     local font = self:get_font()
 
-    if substitute.from ~= "" and not self:is(CommandView) then
-        local text = self.doc.lines[idx]
-        local s, e = text:find(substitute.from)
+    if substitute.display and idx >= line1 and idx <= line2 and not self:is(CommandView) then
+        local remaining = self.doc.lines[idx]
+
+        ::top::
+        local s, e = remaining:find(substitute.from)
         if s then
-            tx = renderer.draw_text(font, text:sub(1, s - 1), tx, ty, style.syntax.comment)
-            tx = renderer.draw_text(font, text:sub(s, e), tx, ty, style.syntax.keyword2)
+            tx = renderer.draw_text(font, remaining:sub(1, s - 1), tx, ty, style.syntax.comment)
+            tx = renderer.draw_text(font, remaining:sub(s, e), tx, ty, style.syntax.keyword2)
             tx = renderer.draw_text(font, substitute.to, tx, ty, style.syntax["function"])
-            tx = renderer.draw_text(font, text:sub(e + 1), tx, ty, style.syntax.comment)
-        else
-            renderer.draw_text(font, text, tx, ty, style.syntax.comment)
+            remaining = remaining:sub(e + 1)
+
+            if substitute.mods:find("g", 1, true) then
+                goto top
+            end
         end
+
+        renderer.draw_text(font, remaining, tx, ty, style.syntax.comment)
     else
         for _, type, text in self.doc.highlighter:each_token(idx) do
             local color = style.syntax[type]
@@ -1197,32 +1206,53 @@ local commands = {
             function(text)
                 previous_exec_command = text
 
-                if text:sub(1, 1) == "s" then
+                if text:sub(1, 2) == "s/" then
+                    local line, col = doc():get_selection()
+                    local l1, _, l2 = doc():get_selection(true)
+
+                    for i = l1, l2 do
+                        local replace
+                        if substitute.mods:find("g", 1, true) then
+                            replace = doc().lines[i]:gsub(substitute.from, substitute.to)
+                        else
+                            replace = doc().lines[i]:gsub(substitute.from, substitute.to, 1)
+                        end
+                        doc():insert(i + 1, 1, replace)
+                        doc():remove(i, 1, i + 1, 1)
+                    end
+
                     substitute.from = ""
                     substitute.to = ""
-                    return
-                end
-
-                local cmd = exec_commands[text]
-                if cmd then
-                    command.perform(cmd)
+                    substitute.mods = ""
+                    substitute.display = false
+                    doc():set_selection(line, col)
+                    normal_mode()
                 else
-                    core.error('Unknown command ":%s"', text)
+                    local cmd = exec_commands[text]
+                    if cmd then
+                        command.perform(cmd)
+                    else
+                        core.error('Unknown command ":%s"', text)
+                    end
                 end
             end,
             function(text)
-                if text:sub(1, 1) == "s" then
+                if text:sub(1, 2) == "s/" then
                     local split = {}
                     for str in text:gmatch "/([^/]*)" do
                         table.insert(split, str)
                     end
                     substitute.from = split[1] or ""
                     substitute.to = split[2] or ""
+                    substitute.mods = split[3] or ""
+                    substitute.display = true
                 end
             end,
             function(explicit)
                 substitute.from = ""
                 substitute.to = ""
+                substitute.mods = ""
+                substitute.display = false
             end
         )
     end,
