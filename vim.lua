@@ -103,6 +103,7 @@ local stroke_combo_tree = {
         ["ctrl+w"] = {},
         ["shift+,"] = {},
         ["shift+."] = {},
+        ["shift+z"] = {},
         c = {},
         d = {
             g = {},
@@ -215,6 +216,11 @@ local mini_mode_callbacks = {
         core.error("Can't find " .. input_text)
     end,
     replace = function(input_text)
+        if visual_submode == "block" then
+            -- TODO
+            return
+        end
+
         local l1, c1, l2, c2 = get_selection(doc())
 
         local text = doc():get_text(l1, c1, l2, c2)
@@ -597,6 +603,7 @@ function DocView:draw_line_text(idx, x, y)
     local font = self:get_font()
 
     if substitute.display and idx >= line1 and idx <= line2 and not self:is(CommandView) then
+        local g = substitute.mods:find("g", 1, true)
         local remaining = self.doc.lines[idx]
 
         ::top::
@@ -607,7 +614,7 @@ function DocView:draw_line_text(idx, x, y)
             tx = renderer.draw_text(font, substitute.to, tx, ty, style.syntax["function"])
             remaining = remaining:sub(e + 1)
 
-            if substitute.mods:find("g", 1, true) then
+            if g then
                 goto top
             end
         end
@@ -1246,6 +1253,11 @@ local commands = {
                     substitute.to = split[2] or ""
                     substitute.mods = split[3] or ""
                     substitute.display = true
+                else
+                    substitute.from = ""
+                    substitute.to = ""
+                    substitute.mods = ""
+                    substitute.display = false
                 end
             end,
             function(explicit)
@@ -1756,6 +1768,7 @@ keymap.add {
     ["normal+shift+,+shift+,"] = "vim:indent-left",
     ["normal+shift+.+shift+."] = "vim:indent-right",
     ["normal+shift+`"] = "vim:swap-case",
+    ["normal+shift+z+shift+z"] = "vim:save-and-close",
     -- cursor movement
     ["normal+left"] = "vim:move-to-previous-char",
     ["normal+down"] = "doc:move-to-next-line",
