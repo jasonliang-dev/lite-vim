@@ -22,9 +22,10 @@ replace mode (shift+r)
 find char in visual mode
 
 TOFIX LIST
-(SEVERE) tab characters sometimes makes text overlap (sometimes?)
-(high) commands in normal mode sometimes "leaks" and are treated as text input
+(SEVERE) tab characters sometimes makes text overlap (is this some other plugin?)
 (high) tab indent (<<, >>) is broken
+(high) indent left (<<) when indent is too small deletes the line
+(high) substitution with certain characters crashes
 (low) pasting in visual line doesn't work
 (low) cursor should always stay in view (ctrl+e/y, mouse wheel)
 (low) autocomplete shows up when using find (f)
@@ -1119,13 +1120,15 @@ end
 function vim_translate.page_down(doc, line, col, dv)
     local delta = dv.size.y / 2
     dv.scroll.to.y = dv.scroll.to.y + delta
-    return line + math.floor(delta / dv:get_line_height()), col
+    line = common.clamp(line + math.floor(delta / dv:get_line_height()), 1, #doc.lines)
+    return line, math.min(col, #doc.lines[line] - 1)
 end
 
 function vim_translate.page_up(doc, line, col, dv)
     local delta = dv.size.y / 2
     dv.scroll.to.y = dv.scroll.to.y - delta
-    return line - math.floor(delta / dv:get_line_height()), col
+    line = common.clamp(line - math.floor(delta / dv:get_line_height()), 1, #doc.lines)
+    return line, math.min(col, #doc.lines[line] - 1)
 end
 
 function vim_translate.visible_top(doc, line, col, dv)
