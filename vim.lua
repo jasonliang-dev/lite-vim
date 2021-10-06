@@ -16,19 +16,19 @@ TODO LIST
     - yank/change/delete to mark (y`a)
     - uppercase marks (mA)
 repeat (.)
-macros (q, @)
 delete other windows (ctrl+w o)
 replace mode (shift+r)
 find char in visual mode
 
 TOFIX LIST
-(SEVERE) tab characters sometimes makes text overlap (is this some other plugin?)
+(SEVERE) tab characters sometimes makes text overlap (is this some other plugin? detectindent?)
 (high) tab indent (<<, >>) is broken
 (high) indent left (<<) when indent is too small deletes the line
 (high) substitution with certain characters crashes
 (low) cursor should always stay in view (ctrl+e/y, mouse wheel)
 (low) autocomplete shows up when using find (f)
 (low) visual block insert sometimes gets misaligned
+(low) (@@) does not work
 
 --]]
 --
@@ -122,6 +122,9 @@ local stroke_combo_tree = {
     insert = {}
 }
 
+local stroke_combo_loc = stroke_combo_tree[mode] -- should be a reference to an item in stroke_combo_tree
+local stroke_combo_string = "" -- key buffer
+
 local previous_exec_command = ""
 local exec_commands = {
     w = "doc:save",
@@ -143,8 +146,33 @@ local previous_search_command = ""
 local search_text = ""
 local should_highlight = false
 
-local stroke_combo_loc = stroke_combo_tree[mode] -- should be a reference to an item in stroke_combo_tree
-local stroke_combo_string = "" -- key buffer
+local macros = {
+    state = "stopped",
+    key = nil,
+    previously_played = nil,
+    buffers = {}
+}
+
+local handled_events = {
+    keypressed = true,
+    keyreleased = true,
+    textinput = true
+}
+
+local core_on_event = core.on_event
+function core.on_event(type, ...)
+    local res = core_on_event(type, ...)
+
+    if visual_block_state.current == "recording" and handled_events[type] then
+        table.insert(visual_block_state.event_buffer, {type, ...})
+    end
+
+    if macros.state == "recording" and handled_events[type] then
+        table.insert(macros.buffers[macros.key], {type, ...})
+    end
+
+    return res
+end
 
 local mini_mode  -- either nil, or a function in mini_mode_callbacks
 
@@ -214,6 +242,36 @@ local mini_mode_callbacks = {
         end
 
         core.error("Can't find " .. input_text)
+    end,
+    record_macro = function(input_text)
+        assert(macros.state == "stopped")
+
+        macros.state = "recording"
+        macros.buffers[input_text] = {}
+        macros.key = input_text
+        core.log(string.format("Recording @%s", input_text))
+    end,
+    play_macro = function(input_text)
+        if input_text == "@" then
+            input_text = macros.previously_played
+        end
+
+        local buffer = macros.buffers[input_text]
+        if not buffer then
+            core.error(string.format("No macro @%s", input_text))
+            return
+        end
+
+        assert(macros.state == "stopped")
+        macros.state = "playing"
+
+        for _, ev in ipairs(buffer) do
+            core_on_event(table.unpack(ev))
+            core.root_view:update()
+        end
+
+        macros.state = "stopped"
+        macros.previously_played = input_text
     end,
     replace = function(input_text)
         if visual_submode == "block" then
@@ -384,7 +442,6 @@ function keymap.on_key_pressed(k)
     end
 
     local stroke = key_to_stroke(k)
-    -- print(mode .. stroke_combo_string .. "+" .. stroke)
 
     -- check for normal+0, and any other command with numbers
     if not (n_repeat ~= 0 and string.find("0123456789", stroke, 1, true)) then
@@ -589,8 +646,9 @@ end
 
 function DocView:on_text_input(text)
     if mini_mode then
-        mini_mode(text)
+        local fn = mini_mode
         mini_mode = nil
+        fn(text)
     elseif mode == "insert" then
         self.doc:text_input(text)
     end
@@ -820,21 +878,6 @@ function core.set_active_view(view)
             view.doc:set_selection(min + math.floor((max - min) / 2), 1)
         end
     end
-end
-
-local handled_events = {
-    keypressed = true,
-    keyreleased = true,
-    textinput = true
-}
-
-local core_on_event = core.on_event
-function core.on_event(type, ...)
-    local res = core_on_event(type, ...)
-    if visual_block_state.current == "recording" and handled_events[type] then
-        table.insert(visual_block_state.event_buffer, {type, ...})
-    end
-    return res
 end
 
 local function char_type(char)
@@ -1518,6 +1561,18 @@ local doc_commands = {
             doc():move_to(#clipboard)
         end
     end,
+    ["vim:play-macro"] = function()
+        if n_repeat ~= 0 then
+            local n = n_repeat
+            mini_mode = function(text_input)
+                for i = 1, n do
+                    mini_mode_callbacks.play_macro(text_input)
+                end
+            end
+        else
+            mini_mode = mini_mode_callbacks.play_macro
+        end
+    end,
     ["vim:replace"] = function()
         mini_mode = mini_mode_callbacks.replace
     end,
@@ -1661,6 +1716,21 @@ local doc_commands = {
             doc():set_selection(l1, c1)
         end
     end,
+    ["vim:toggle-record-macro"] = function()
+        if macros.state == "recording" then
+            macros.state = "stopped"
+
+            local buffer = macros.buffers[macros.key]
+            -- remove the first text input (if macro recorded in register 'q', remove the 'q' key event)
+            assert(#buffer >= 2 and buffer[1][1] == "textinput" and buffer[2][1] == "keyreleased")
+            table.remove(buffer, 1)
+            table.remove(buffer, 1)
+
+            core.log(string.format("Recorded @%s. (%d events)", macros.key, #buffer))
+        else
+            mini_mode = mini_mode_callbacks.record_macro
+        end
+    end,
     ["vim:uppercase"] = function()
         local l1, c1, l2, c2 = get_selection(doc())
         local text = doc():get_text(l1, c1, l2, c2)
@@ -1774,6 +1844,8 @@ keymap.add {
     ["normal+shift+.+shift+."] = "vim:indent-right",
     ["normal+shift+`"] = "vim:swap-case",
     ["normal+shift+z+shift+z"] = "vim:save-and-close",
+    ["normal+q"] = "vim:toggle-record-macro",
+    ["normal+shift+2"] = "vim:play-macro",
     -- cursor movement
     ["normal+left"] = "vim:move-to-previous-char",
     ["normal+down"] = "doc:move-to-next-line",
