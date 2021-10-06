@@ -869,25 +869,24 @@ end
 
 local set_active_view = core.set_active_view
 function core.set_active_view(view)
-    if not view:is(DocView) then
-        set_active_view(view)
+    local av = core.active_view
+    set_active_view(view)
+
+    if av:is(DocView) then
+        av.vim_last_selection = table.pack(av.doc:get_selection())
+    end
+
+    if av == view or not view:is(DocView) then
         return
     end
 
-    core.active_view.vim_last_selection = table.pack(view.doc:get_selection())
-    set_active_view(view)
-
-    local line = view.doc:get_selection()
-
     if view.vim_last_selection then
-        local l1, c1, l2, c2 = table.unpack(view.vim_last_selection)
-        if line < l1 or line > l2 then
-            view.doc:set_selection(l1, c1, l2, c2)
-            return
-        end
+        view.doc:set_selection(table.unpack(view.vim_last_selection))
+        return
     end
 
     local min, max = view:get_visible_line_range()
+    local line = view.doc:get_selection()
 
     if line < min or line > max then
         view.doc:set_selection(min + math.floor((max - min) / 2), 1)
