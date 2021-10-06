@@ -26,7 +26,6 @@ TOFIX LIST
 (high) tab indent (<<, >>) is broken
 (high) indent left (<<) when indent is too small deletes the line
 (high) substitution with certain characters crashes
-(low) pasting in visual line doesn't work
 (low) cursor should always stay in view (ctrl+e/y, mouse wheel)
 (low) autocomplete shows up when using find (f)
 (low) visual block insert sometimes gets misaligned
@@ -1323,6 +1322,11 @@ local doc_commands = {
         doc():set_selection(l1, c1)
         normal_mode()
     end,
+    ["vim:copy-line"] = function()
+        local line = doc():get_selection()
+        local text = doc():get_text(line, 1, line + 1, 1)
+        system.set_clipboard(text)
+    end,
     ["vim:cut"] = function()
         if visual_submode == "block" then
             local l1, c1, l2, c2 = doc():get_selection(true)
@@ -1348,11 +1352,6 @@ local doc_commands = {
             doc():set_selection(l1, c1)
             doc():remove(l1, c1, l2, c2)
         end
-    end,
-    ["vim:copy-line"] = function()
-        local line = doc():get_selection()
-        local text = doc():get_text(line, 1, line + 1, 1)
-        system.set_clipboard(text)
     end,
     ["vim:delete-char"] = function()
         command.perform "vim:cut"
@@ -1485,7 +1484,10 @@ local doc_commands = {
     ["vim:paste"] = function()
         local clipboard = system.get_clipboard():gsub("\r", "")
 
-        if doc():has_selection() then
+        if mode == "visual" then
+            if visual_submode == "line" and clipboard:sub(-1) == "\n" then
+                clipboard = clipboard:sub(1, #clipboard - 1)
+            end
             command.perform "vim:cut"
             doc():text_input(clipboard)
             normal_mode()
@@ -1502,7 +1504,7 @@ local doc_commands = {
     ["vim:paste-before"] = function()
         local clipboard = system.get_clipboard():gsub("\r", "")
 
-        if doc():has_selection() then
+        if mode == "visual" then
             command.perform "vim:cut"
             doc():text_input(clipboard)
             normal_mode()
