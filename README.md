@@ -31,18 +31,22 @@ config.vim_stroke_combos = {
 command.perform "vim:use-user-stroke-combos"
 
 keymap.add {
-    ["normal+" .. leader .. "+w+v"] = "root:split-right",
+    -- `<leader> w h/j/k/l` to move between splits
+    ["normal " .. leader .. " w h"] = "root:switch-to-left",
+    ["normal " .. leader .. " w j"] = "root:switch-to-down",
+    ["normal " .. leader .. " w k"] = "root:switch-to-up",
+    ["normal " .. leader .. " w l"] = "root:switch-to-right",
+    
+    -- normal mode and visual mode bindings
+    ["normal " .. leader .. " ="] = "my-formatter:format",
+    ["visual " .. leader .. " ="] = "my-formatter:format-region",
+    
+    -- most default bindings are inaccessible from normal mode
+    ["normal ctrl+pageup"] = "root:move-tab-left",
+    ["normal ctrl+pagedown"] = "root:move-tab-right",
 
-    ["normal+" .. leader .. "+w+h"] = "root:switch-to-left",
-    ["normal+" .. leader .. "+w+j"] = "root:switch-to-down",
-    ["normal+" .. leader .. "+w+k"] = "root:switch-to-up",
-    ["normal+" .. leader .. "+w+l"] = "root:switch-to-right",
-
-    ["normal+" .. leader .. "+="] = "my-formatter:luafmt",
-    ["visual+" .. leader .. "+="] = "my-formatter:luafmt-region",
-
-    -- no prefix. this is insert mode.
-    ["ctrl+p"] = "autocomplete:previous",
-    ["ctrl+n"] = "autocomplete:next"
+    -- no "normal" or "visual" prefix. this is insert mode
+    ["ctrl+p"] = {"command:select-previous", "autocomplete:previous"},
+    ["ctrl+n"] = {"command:select-next", "autocomplete:next"}
 }
 ```
