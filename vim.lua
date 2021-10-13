@@ -99,6 +99,8 @@ end
 -- used for number + command (50j to go down 50 lines, y3w to copy 3 words, etc)
 local n_repeat = 0
 
+local relative_line_mode = false
+
 local stroke_combo_tree = {
     normal = {
         ["ctrl+w"] = {},
@@ -804,6 +806,20 @@ function DocView:draw_line_body(idx, x, y)
     end
 end
 
+function DocView:draw_line_gutter(idx, x, y)
+    local color = style.line_number
+    local line1, _, line2, _ = self.doc:get_selection(true)
+    local ln = idx
+    if idx >= line1 and idx <= line2 then
+        color = style.line_number2
+    elseif relative_line_mode then
+        ln = math.abs(idx - line1)
+    end
+    local yoffset = self:get_line_text_y_offset()
+    x = x + style.padding.x
+    renderer.draw_text(self:get_font(), ln, x, y + yoffset, color)
+end
+
 if is_lite_xl then
     function DocView:draw_overlay()
         -- pass
@@ -1344,6 +1360,9 @@ local commands = {
     end,
     ["vim:nohl"] = function()
         should_highlight = false
+    end,
+    ["vim:relative-line"] = function()
+        relative_line_mode = not relative_line_mode
     end
 }
 
@@ -1993,4 +2012,3 @@ ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ------------------------------------------------------------------------------
 --]]
-
