@@ -666,7 +666,7 @@ function DocView:draw_line_text(idx, x, y)
         local remaining = self.doc.lines[idx]
 
         ::top::
-        local s, e = remaining:find(substitute.from)
+        local s, e = remaining:find(substitute.from, 1, true)
         if s then
             tx = renderer.draw_text(font, remaining:sub(1, s - 1), tx, ty, style.syntax.comment)
             tx = renderer.draw_text(font, remaining:sub(s, e), tx, ty, style.syntax.keyword2)
@@ -872,24 +872,22 @@ function core.set_active_view(view)
     local av = core.active_view
     set_active_view(view)
 
-    if av:is(DocView) then
+    if av:is(DocView) and not av:is(CommandView) then
         av.vim_last_selection = table.pack(av.doc:get_selection())
     end
 
-    if av == view or not view:is(DocView) then
-        return
-    end
+    if av ~= view and view:is(DocView) then
+        if view.vim_last_selection then
+            view.doc:set_selection(table.unpack(view.vim_last_selection))
+            return
+        end
 
-    if view.vim_last_selection then
-        view.doc:set_selection(table.unpack(view.vim_last_selection))
-        return
-    end
+        local min, max = view:get_visible_line_range()
+        local line = view.doc:get_selection()
 
-    local min, max = view:get_visible_line_range()
-    local line = view.doc:get_selection()
-
-    if line < min or line > max then
-        view.doc:set_selection(min + math.floor((max - min) / 2), 1)
+        if line < min or line > max then
+            view.doc:set_selection(min + math.floor((max - min) / 2), 1)
+        end
     end
 end
 
@@ -1819,6 +1817,10 @@ keymap.add {
     -- insert
     ["escape"] = "vim:escape",
     -- normal
+    ["normal ctrl+p"] = "vim:find-file",
+    ["normal ctrl+shift+p"] = "vim:find-command",
+    ["normal ctrl+\\"] = "treeview:toggle",
+    ["normal ctrl+s"] = "doc:save",
     ["normal escape"] = {"command:escape", "vim:force-normal-mode"},
     ["normal shift+;"] = "vim:exec",
     ["normal a"] = "vim:insert-next-char",
@@ -1838,10 +1840,6 @@ keymap.add {
     ["normal shift+o"] = "vim:insert-newline-above",
     ["normal p"] = "vim:paste",
     ["normal shift+p"] = "vim:paste-before",
-    ["normal ctrl+p"] = "vim:find-file",
-    ["normal ctrl+shift+p"] = "vim:find-command",
-    ["normal ctrl+\\"] = "treeview:toggle",
-    ["normal ctrl+s"] = "doc:save",
     ["normal g t"] = "root:switch-to-next-tab",
     ["normal g shift+t"] = "root:switch-to-previous-tab",
     ["normal v"] = "vim:visual-mode",
