@@ -814,6 +814,16 @@ local status_view_get_items = StatusView.get_items
 function StatusView:get_items()
     local left, right = status_view_get_items(self)
 
+    if n_repeat ~= 0 then
+        if next(left) then
+            table.insert(left, style.dim)
+            table.insert(left, self.separator)
+        end
+
+        table.insert(left, style.text)
+        table.insert(left, tostring(n_repeat))
+    end
+
     if mode == "normal" then
         return left, right
     end
@@ -1983,3 +1993,4 @@ ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ------------------------------------------------------------------------------
 --]]
+
