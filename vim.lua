@@ -808,13 +808,21 @@ end
 
 function DocView:draw_line_gutter(idx, x, y)
     local color = style.line_number
-    local line1, _, line2, _ = self.doc:get_selection(true)
+    local line1, _, line2, _ = self.doc:get_selection()
+
     local ln = idx
-    if idx >= line1 and idx <= line2 then
-        color = style.line_number2
-    elseif relative_line_mode then
+    if relative_line_mode and idx ~= line1 and self == core.active_view and mode ~= "insert" then
         ln = math.abs(idx - line1)
     end
+
+    if line1 > line2 then
+        line1, line2 = line2, line1
+    end
+
+    if idx >= line1 and idx <= line2 then
+        color = style.line_number2
+    end
+
     local yoffset = self:get_line_text_y_offset()
     x = x + style.padding.x
     renderer.draw_text(self:get_font(), ln, x, y + yoffset, color)
