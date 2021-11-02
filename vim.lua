@@ -957,7 +957,7 @@ function vim_translate.goto_line(doc, line, col, dv)
         n_repeat = 0
         return n, 1
     else
-        return #doc.lines, #doc.lines[#doc.lines] - 1
+        return #doc.lines, 1
     end
 end
 
