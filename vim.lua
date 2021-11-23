@@ -18,7 +18,6 @@ TODO LIST
 repeat (.)
 delete other windows (ctrl+w o)
 replace mode (shift+r)
-find char in visual mode
 replace in visual block
 
 TOFIX LIST
@@ -191,7 +190,12 @@ local mini_mode_callbacks = {
             local c = text:sub(i, i)
 
             if c == input_text then
-                doc():set_selection(l1, i, l2, c2)
+                if mode == "normal" then
+                    doc():set_selection(l1, i)
+                elseif mode == "visual" then
+                    doc():set_selection(l1, i, l2, c2)
+                end
+
                 return
             end
         end
@@ -207,7 +211,12 @@ local mini_mode_callbacks = {
             local c = text:sub(i, i)
 
             if c == input_text then
-                doc():set_selection(l1, i, l2, c2)
+                if mode == "normal" then
+                    doc():set_selection(l1, i)
+                elseif mode == "visual" then
+                    doc():set_selection(l1, i, l2, c2)
+                end
+
                 return
             end
         end
@@ -223,7 +232,12 @@ local mini_mode_callbacks = {
             local c = text:sub(i, i)
 
             if c == input_text then
-                doc():set_selection(l1, i - 1, l2, c2)
+                if mode == "normal" then
+                    doc():set_selection(l1, i - 1)
+                elseif mode == "visual" then
+                    doc():set_selection(l1, i - 1, l2, c2)
+                end
+
                 return
             end
         end
@@ -239,7 +253,12 @@ local mini_mode_callbacks = {
             local c = text:sub(i, i)
 
             if c == input_text then
-                doc():set_selection(l1, i + 1, l2, c2)
+                if mode == "normal" then
+                    doc():set_selection(l1, i - 1)
+                elseif mode == "visual" then
+                    doc():set_selection(l1, i - 1, l2, c2)
+                end
+
                 return
             end
         end
