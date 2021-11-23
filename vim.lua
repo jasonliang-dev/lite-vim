@@ -184,14 +184,14 @@ local previous_find_text
 local mini_mode_callbacks = {
     find = function(input_text)
         previous_find_text = input_text
-        local line, col = doc():get_selection()
-        local text = doc():get_text(line, 1, line, math.huge)
+        local l1, c1, l2, c2 = doc():get_selection()
+        local text = doc():get_text(l1, 1, l1, math.huge)
 
-        for i = col + 1, #text do
+        for i = c1 + 1, #text do
             local c = text:sub(i, i)
 
             if c == input_text then
-                doc():set_selection(line, i)
+                doc():set_selection(l1, i, l2, c2)
                 return
             end
         end
@@ -200,14 +200,14 @@ local mini_mode_callbacks = {
     end,
     find_backwards = function(input_text)
         previous_find_text = input_text
-        local line, col = doc():get_selection()
-        local text = doc():get_text(line, 1, line, math.huge)
+        local l1, c1, l2, c2 = doc():get_selection()
+        local text = doc():get_text(l1, 1, l1, math.huge)
 
-        for i = col - 1, 1, -1 do
+        for i = c1 - 1, 1, -1 do
             local c = text:sub(i, i)
 
             if c == input_text then
-                doc():set_selection(line, i)
+                doc():set_selection(l1, i, l2, c2)
                 return
             end
         end
@@ -216,14 +216,14 @@ local mini_mode_callbacks = {
     end,
     find_til = function(input_text)
         previous_find_text = input_text
-        local line, col = doc():get_selection()
-        local text = doc():get_text(line, 1, line, math.huge)
+        local l1, c1, l2, c2 = doc():get_selection()
+        local text = doc():get_text(l1, 1, l1, math.huge)
 
-        for i = col + 1, #text do
+        for i = c1 + 1, #text do
             local c = text:sub(i, i)
 
             if c == input_text then
-                doc():set_selection(line, i - 1)
+                doc():set_selection(l1, i - 1, l2, c2)
                 return
             end
         end
@@ -232,14 +232,14 @@ local mini_mode_callbacks = {
     end,
     find_til_backwards = function(input_text)
         previous_find_text = input_text
-        local line, col = doc():get_selection()
-        local text = doc():get_text(line, 1, line, math.huge)
+        local l1, c1, l2, c2 = doc():get_selection()
+        local text = doc():get_text(l1, 1, l1, math.huge)
 
-        for i = col - 1, 1, -1 do
+        for i = c1 - 1, 1, -1 do
             local c = text:sub(i, i)
 
             if c == input_text then
-                doc():set_selection(line, i + 1)
+                doc():set_selection(l1, i + 1, l2, c2)
                 return
             end
         end
@@ -1977,7 +1977,11 @@ keymap.add {
     ["visual shift+l"] = "vim:select-to-visible-bottom",
     ["visual ctrl+e"] = "vim:scroll-line-down",
     ["visual ctrl+y"] = "vim:scroll-line-up",
-    ["visual shift+i"] = "vim:insert-from-visual"
+    ["visual shift+i"] = "vim:insert-from-visual",
+    ["visual f"] = "vim:find-char",
+    ["visual shift+f"] = "vim:find-char-backwards",
+    ["visual t"] = "vim:find-char-til",
+    ["visual shift+t"] = "vim:find-char-til-backwards"
 }
 
 --[[
