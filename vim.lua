@@ -677,6 +677,7 @@ function DocView:on_text_input(text)
     end
 end
 
+local draw_line_text = DocView.draw_line_text
 function DocView:draw_line_text(idx, x, y)
     local line1, col1, line2, col2 = self.doc:get_selection(true)
 
@@ -702,10 +703,7 @@ function DocView:draw_line_text(idx, x, y)
 
         renderer.draw_text(font, remaining, tx, ty, style.syntax.comment)
     else
-        for _, type, text in self.doc.highlighter:each_token(idx) do
-            local color = style.syntax[type]
-            tx = renderer.draw_text(font, text, tx, ty, color)
-        end
+        draw_line_text(self, idx, x, y)
     end
 end
 
@@ -982,14 +980,13 @@ function vim_translate.goto_line(doc, line, col, dv)
 end
 
 function vim_translate.previous_char(doc, line, col)
-    local line2
-    local col2
+    local line2, col2 = line, col
 
     repeat
-        line2, col2 = doc:position_offset(line, col, -1)
+        line2, col2 = doc:position_offset(line2, col2, -1)
     until not common.is_utf8_cont(doc:get_char(line2, col2))
 
-    if line ~= line2 then
+    if line2 ~= line then
         return line, col
     else
         return line2, col2
@@ -997,14 +994,13 @@ function vim_translate.previous_char(doc, line, col)
 end
 
 function vim_translate.next_char(doc, line, col)
-    local line2
-    local col2
+    local line2, col2 = line, col
 
     repeat
-        line2, col2 = doc:position_offset(line, col, 1)
+        line2, col2 = doc:position_offset(line2, col2, 1)
     until not common.is_utf8_cont(doc:get_char(line2, col2))
 
-    if line ~= line2 then
+    if line2 ~= line then
         return line, col
     else
         if col2 == #doc.lines[line2] then
