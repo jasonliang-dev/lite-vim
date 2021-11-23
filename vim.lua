@@ -647,13 +647,14 @@ function DocView:on_mouse_released(button)
     end
 end
 
+local on_text_input = DocView.on_text_input
 function DocView:on_text_input(text)
     if mini_mode then
         local fn = mini_mode
         mini_mode = nil
         fn(text)
     elseif mode == "insert" then
-        self.doc:text_input(text)
+        on_text_input(self, text)
     end
 end
 
@@ -663,7 +664,7 @@ function DocView:draw_line_text(idx, x, y)
     local tx, ty = x, y + self:get_line_text_y_offset()
     local font = self:get_font()
 
-    if substitute.display and idx >= line1 and idx <= line2 and not self:is(CommandView) then
+    if substitute.display and dv() ~= self and idx >= line1 and idx <= line2 and not self:is(CommandView) then
         local g = substitute.mods:find("g", 1, true)
         local remaining = self.doc.lines[idx]
 
