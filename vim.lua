@@ -21,13 +21,12 @@ replace mode (shift+r)
 replace in visual block
 
 TOFIX LIST
-(SEVERE) tab characters sometimes makes text overlap (is this some other plugin? detectindent?)
 (high) tab indent (<<, >>) is broken
 (high) indent left (<<) when indent is too small deletes the line
 (high) substitution with certain characters crashes
 (low) cursor should always stay in view (ctrl+e/y, mouse wheel)
 (low) autocomplete shows up when using find (f)
-(low) visual block insert sometimes gets misaligned
+(low) visual block insert gets misaligned when moving cursor from bottom to top
 (low) (@@) does not work
 
 --]]
@@ -99,6 +98,7 @@ end
 local n_repeat = 0
 
 local relative_line_mode = false
+local enable_linenum = true
 
 local stroke_combo_tree = {
     normal = {
@@ -825,6 +825,10 @@ function DocView:draw_line_body(idx, x, y)
 end
 
 function DocView:draw_line_gutter(idx, x, y)
+    if not enable_linenum then
+        return
+    end
+
     local color = style.line_number
     local line1, _, line2, _ = self.doc:get_selection()
 
@@ -844,6 +848,15 @@ function DocView:draw_line_gutter(idx, x, y)
     local yoffset = self:get_line_text_y_offset()
     x = x + style.padding.x
     renderer.draw_text(self:get_font(), ln, x, y + yoffset, color)
+end
+
+local get_gutter_width = DocView.get_gutter_width
+function DocView:get_gutter_width()
+    if enable_linenum then
+        return get_gutter_width(self)
+    end
+
+    return style.padding.x
 end
 
 if is_lite_xl then
@@ -1251,6 +1264,7 @@ end
 
 local commands = {
     ["vim:debug"] = function()
+        core.log("config.indent_size: " .. config.indent_size)
     end,
     ["vim:use-user-stroke-combos"] = function()
         local function merge_trees(t1, t2)
@@ -1387,6 +1401,9 @@ local commands = {
     end,
     ["vim:relative-line"] = function()
         relative_line_mode = not relative_line_mode
+    end,
+    ["vim:linenum"] = function()
+        enable_linenum = not enable_linenum
     end
 }
 
